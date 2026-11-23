@@ -7,14 +7,13 @@
 package fakecrush
 
 import (
-	"context"
 	"encoding/json/v2"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -75,9 +74,9 @@ func MaybeRunAsServer() {
 	}
 
 	network, addr := hostArg(os.Args[1:])
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), network, addr)
+	ln, err := listen(network, addr)
 	if err != nil {
-		// Like Crush, a server that finds its socket taken gives up.
+		// Like Crush, a server that finds its address taken gives up.
 		fmt.Fprintln(os.Stderr, "fake crush:", err)
 		os.Exit(1)
 	}
@@ -112,19 +111,24 @@ func MaybeRunAsServer() {
 }
 
 // hostArg returns the listen address from `--host <url>` in args. Without
-// one, the fake listens where Crush's default server does.
+// one, the fake listens where Crush's default server does. Like Crush, it
+// takes everything after a socket or pipe URL's "://" as the address, so a
+// pipe may be written with backslashes.
 func hostArg(args []string) (network, addr string) {
 	for i, a := range args {
 		if a == "--host" && i+1 < len(args) {
+			scheme, rest, _ := strings.Cut(args[i+1], "://")
+			switch scheme {
+			case "unix", "npipe":
+				return scheme, rest
+			}
 			u, err := url.Parse(args[i+1])
 			if err != nil {
 				break
 			}
-			if u.Scheme == "unix" {
-				return "unix", u.Path
-			}
 			return "tcp", u.Host
 		}
 	}
-	return "unix", crushserver.DefaultSocket()
+	scheme, rest, _ := strings.Cut(crushserver.SharedURL(crushserver.DefaultSocket()), "://")
+	return scheme, rest
 }

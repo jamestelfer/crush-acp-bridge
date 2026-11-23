@@ -61,7 +61,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			},
 			&cli.StringFlag{
 				Name:    "crush-socket",
-				Usage:   "Unix socket of the --shared server (default: Crush's own)",
+				Usage:   "Unix socket, or named pipe on Windows, of the --shared server (default: Crush's own)",
 				Sources: cli.EnvVars("CRUSH_ACP_CRUSH_SOCKET"),
 			},
 			&cli.StringFlag{
@@ -159,7 +159,7 @@ type serveOptions struct {
 	forceCwd string // open this directory for every session when set
 	managed  bool   // run `crush server` as a child instead of connecting
 	shared   bool   // use, or start, Crush's per-user shared server
-	socket   string // the shared server's socket when not Crush's default
+	socket   string // the shared server's socket or pipe when not Crush's default
 	crushBin string
 	listen   string
 }
@@ -199,7 +199,7 @@ func serve(ctx context.Context, log *slog.Logger, opts serveOptions, stdin io.Re
 		if err := ensure(ctx); err != nil {
 			return err
 		}
-		crushURL = "unix://" + shared.Socket
+		crushURL = crushserver.SharedURL(shared.Socket)
 	}
 
 	client := crush.New(crushURL)
