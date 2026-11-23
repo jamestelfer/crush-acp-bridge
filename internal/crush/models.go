@@ -119,3 +119,13 @@ func (w *Workspace) setPreferred(ctx context.Context, modelType string, model an
 	}{workspaceScope, modelType, model}
 	return w.c.do(ctx, http.MethodPost, w.path("/config/model"), body, nil)
 }
+
+// SetMainAgent switches the workspace's active agent, "coder" or "plan". The
+// server holds the choice in memory for the whole workspace, offers no way to
+// read it back, and starts on "coder". It returns ErrBusy while a turn runs.
+func (w *Workspace) SetMainAgent(ctx context.Context, agentID string) error {
+	if err := w.c.do(ctx, http.MethodPost, w.path("/agent/main"), map[string]string{"agent_id": agentID}, nil); err != nil {
+		return fmt.Errorf("set main agent: %w", err)
+	}
+	return nil
+}

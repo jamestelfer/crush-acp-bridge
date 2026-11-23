@@ -96,6 +96,18 @@ type fakeCrush struct {
 	models    crush.Models
 	modelsErr error
 	setModels []crush.ModelRef
+	agents    []string
+	agentErr  error
+}
+
+func (f *fakeCrush) SetMainAgent(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.agentErr != nil {
+		return f.agentErr
+	}
+	f.agents = append(f.agents, id)
+	return nil
 }
 
 func (f *fakeCrush) Models(context.Context) (crush.Models, error) {
@@ -165,6 +177,7 @@ func (f *fakeCrush) Grant(_ context.Context, p jsontext.Value, a crush.Action) e
 type editor struct {
 	mu          sync.Mutex
 	updates     []acp.SessionUpdate
+	sessions    []acp.SessionId // the session of each entry in updates
 	onPermisson func(acp.RequestPermissionRequest) acp.RequestPermissionResponse
 }
 
@@ -172,6 +185,7 @@ func (e *editor) SessionUpdate(_ context.Context, n acp.SessionNotification) err
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.updates = append(e.updates, n.Update)
+	e.sessions = append(e.sessions, n.SessionId)
 	return nil
 }
 

@@ -29,6 +29,7 @@ type Backend interface {
 	Events(ctx context.Context) (<-chan []byte, error)
 	Models(ctx context.Context) (crush.Models, error)
 	SetModel(ctx context.Context, m crush.ModelRef) error
+	SetMainAgent(ctx context.Context, agentID string) error
 }
 
 var _ Backend = (*crush.Workspace)(nil)
@@ -51,6 +52,7 @@ func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts .
 	a := &Agent{
 		open:       open,
 		workspaces: map[string]Backend{},
+		modes:      map[string]acp.SessionModeId{},
 		sessions:   map[string]*session{},
 		serveCtx:   ctx,
 		log:        slog.New(slog.DiscardHandler),
@@ -79,13 +81,15 @@ type Agent struct {
 	log      *slog.Logger
 
 	mu         sync.Mutex
-	workspaces map[string]Backend // by directory
+	workspaces map[string]Backend           // by directory
+	modes      map[string]acp.SessionModeId // Crush's active agent, by directory
 	sessions   map[string]*session
 }
 
 // session tracks one in-flight turn.
 type session struct {
 	backend Backend
+	cwd     string
 	turn    chan acp.StopReason
 	// active is set while a Prompt call waits for its turn. Turns started by
 	// other clients (the Crush TUI) also end in this session; their ends must
@@ -142,10 +146,15 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	}
 
 	a.mu.Lock()
-	a.sessions[id] = &session{backend: backend, turn: make(chan acp.StopReason, 1)}
+	a.sessions[id] = &session{backend: backend, cwd: req.Cwd, turn: make(chan acp.StopReason, 1)}
+	modes := modeState(a.modeLocked(req.Cwd))
 	a.mu.Unlock()
 	a.log.Info("session created", "session_id", id, "cwd", req.Cwd)
-	return acp.NewSessionResponse{SessionId: acp.SessionId(id), ConfigOptions: a.sessionConfig(ctx, backend, id)}, nil
+	return acp.NewSessionResponse{
+		SessionId:     acp.SessionId(id),
+		ConfigOptions: a.sessionConfig(ctx, backend, id),
+		Modes:         modes,
+	}, nil
 }
 
 // Prompt runs one turn and returns when Crush reports it finished.

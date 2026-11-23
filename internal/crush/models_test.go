@@ -136,3 +136,23 @@ func TestSetModelReportsAFailedUpdate(t *testing.T) {
 
 	require.ErrorContains(t, err, "set model")
 }
+
+func TestSetMainAgentSwitchesCrushsAgent(t *testing.T) {
+	ws, srv := openFake(t, map[string]http.HandlerFunc{
+		"POST /v1/workspaces/ws-1/agent/main": func(http.ResponseWriter, *http.Request) {},
+	})
+
+	require.NoError(t, ws.SetMainAgent(t.Context(), "plan"))
+
+	require.Equal(t, map[string]any{"agent_id": "plan"}, srv.last().Body)
+}
+
+func TestSetMainAgentWhileBusyReturnsErrBusy(t *testing.T) {
+	ws, _ := openFake(t, map[string]http.HandlerFunc{
+		"POST /v1/workspaces/ws-1/agent/main": func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, `{"error":"agent is busy"}`, http.StatusConflict)
+		},
+	})
+
+	require.ErrorIs(t, ws.SetMainAgent(t.Context(), "plan"), crush.ErrBusy)
+}
