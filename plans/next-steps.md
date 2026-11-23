@@ -45,7 +45,7 @@ Ordered ahead of slice 3: without it, a second Crush agent in a directory fails.
 - No start-up lock is needed: a server that finds a live one on its socket exits with "address already in use", and Crush's own `<socket>.lock` guards simultaneous binds and stale-socket removal. The bridge treats its own server exiting as normal while it keeps polling.
 - The idle timeout is left at Crush's default. Each connected bridge holds its workspace open; the server exits 60s after the last client leaves.
 - The bridge sends its environment when it opens a workspace on a local server (Unix socket or loopback host), as Crush clients do, so provider credentials reach a server another client started. The first client to open a path sets its environment.
-- `--managed` stays as the fallback, and is the only self-contained mode on Windows until named pipes are supported (`go-winio`).
+- `--managed` stays as the fallback. On Windows `--shared` uses Crush's named pipe through `go-winio` (see the notes).
 - Reconnect: when the event stream ends, the bridge ensures the server again, reopens its workspaces, reports current sessions and resubscribes. A turn in flight ends with an error.
 
 **Limits.** Only servers take the data-directory lock (`db.WithDataDirLock`). A plain `crush` without `CRUSH_CLIENT_SERVER=1` runs in-process alongside the shared server without conflict, writing the same SQLite file, but sees no live events from it.
@@ -73,6 +73,7 @@ Notes:
 - Paseo now requires an explicit mode (`coder` or `plan`) when it creates a Crush agent from another provider's agent.
 - A permanently gone server makes the bridge retry every 5 seconds, logging a warning each time.
 - Deferred: a dropped event stream to a server that is still running fails the turn, and reconnect registers a new client ID. Keeping the turn alive and re-subscribing with the existing client is deferred.
+- Windows: `--shared` uses Crush's named pipe `//./pipe/crush-<sid>.sock` (Crush 0.102.0 `internal/server/server.go` `DefaultHost`), dialled as `npipe://` with go-winio v0.6.4 after the same pipe-owner check Crush's client makes. A detached server starts with `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`, breaking away from the job object where allowed, as Crush's `root_windows.go` does. go-winio creates a pipe's first instance only when the name is free, so the start-up race needs no lock. Cross-compiled and vetted; the shared tests run on Windows in CI against pipes of their own. Not verified live on Windows.
 
 ### 3. `session/list`, `session/load` and `session/resume`
 
@@ -128,3 +129,4 @@ Notes:
 - 2026-11-24: Review fixes applied (`ff12325`..`2073fbd`).
 - 2026-11-24: Slice 4 done (`18e8ccf`), verified live with a Paseo Crush agent: the pending edit permission carried the whole-file diff. Next: slice 5.
 - 2026-11-24: Slice 5 done (`871d797`), verified with a traced Paseo session: no method-not-found in either direction, and every unimplemented method Paseo can call is gated on a capability or field the bridge does not send.
+- 2026-11-24: Windows named pipe support for --shared (`1df1bc3`), cross-compiled; not verified on Windows.

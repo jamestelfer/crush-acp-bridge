@@ -46,14 +46,18 @@ crush-acp-bridge --shared
 - Any number of bridges, and Crush TUIs, use the one server. Several agents can work in the same directory.
 - The server listens on a Unix socket: `crush-<uid>.sock` in `$XDG_RUNTIME_DIR`, or in the temporary
   directory. `--crush-socket` overrides it.
+- On Windows the server listens on a named pipe instead: `\\.\pipe\crush-<sid>.sock`, where `<sid>` is the
+  user's SID. `--crush-socket` takes a pipe name there, such as `\\.\pipe\my-crush`. The bridge refuses a pipe
+  whose server runs as another user, as Crush does.
 - A server the bridge starts logs to `crush-acp-bridge/shared-server.log` in the user cache directory.
 - If the server goes away, the bridge reconnects and starts a new one. A turn in flight ends with an error;
   prompts sent while it reconnects wait for it.
 - `crush` must be on `PATH`, or pass `--crush-bin`.
-- Not available on Windows yet. Use `--managed` there.
+- Windows support is not verified live on Windows. It is cross-compiled, and its tests run against a fake
+  Crush in the Windows CI job. `--managed` remains the fallback there.
 
 The bridge sends its environment when it opens a project on a local server, as Crush clients do: a Unix
-socket, or a `--crush-url` whose host is `localhost` or a loopback address. A server on another machine
+socket, a named pipe, or a `--crush-url` whose host is `localhost` or a loopback address. A server on another machine
 receives no environment. Set provider variables such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` on the
 bridge. The first client to open a project sets its environment for every later client.
 
@@ -110,11 +114,11 @@ Configure the editor to run `crush-acp-bridge` as an ACP agent over stdio. For a
 | Flag | Environment | Description |
 |---|---|---|
 | `--shared` | | Use Crush's per-user shared server, starting it if needed. Conflicts with `--managed` and an explicit `--crush-url`. |
-| `--crush-socket` | `CRUSH_ACP_CRUSH_SOCKET` | The `--shared` server's Unix socket. Defaults to Crush's own. Rejected without `--shared`. |
+| `--crush-socket` | `CRUSH_ACP_CRUSH_SOCKET` | The `--shared` server's Unix socket, or named pipe on Windows. Defaults to Crush's own. Rejected without `--shared`. |
 | `--managed` | | Run `crush server` as a child process. Conflicts with an explicit `--crush-url`. |
 | `--crush-bin` | `CRUSH_ACP_CRUSH_BIN` | The `crush` executable for `--shared` and `--managed`. Defaults to `crush`. |
 | `--listen` | | `host:port` for the `--managed` server. Defaults to a free local port. |
-| `--crush-url` | `CRUSH_ACP_URL` | Base URL of the Crush server: `http://` or `unix://`. Defaults to `http://127.0.0.1:8484`. |
+| `--crush-url` | `CRUSH_ACP_URL` | Base URL of the Crush server: `http://`, `unix://`, or `npipe://` on Windows. Defaults to `http://127.0.0.1:8484`. |
 | `--cwd` | | Open this directory in Crush for every session, ignoring the directory the editor sends. |
 | `--log-level` | `CRUSH_ACP_LOG_LEVEL` | `debug`, `info`, `warn` or `error`. Defaults to `info`. |
 | `--log-format` | `CRUSH_ACP_LOG_FORMAT` | `text` or `json`. Defaults to `text`. |
@@ -206,7 +210,6 @@ Not supported:
 
 - Editor file system and terminal delegation. The agent reads files from disk, so unsaved buffers are invisible.
 - Crush question prompts.
-- The shared server on Windows, which uses a named pipe.
 - Image and attachment prompts. Only text blocks are sent.
 - `authenticate`, `logout`, `session/close`, `session/delete` and the unstable `session/set_model`. The bridge
   advertises none of them, and offers models as a config option instead.
