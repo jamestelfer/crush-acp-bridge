@@ -228,3 +228,31 @@ func TestUserMessagesAreEmittedOncePerMessage(t *testing.T) {
 		"Say ok.",
 	}, got)
 }
+
+func TestToolInputIsEmittedOnceWhenComplete(t *testing.T) {
+	tr := translate.New()
+	var order []translate.Kind
+	var inputs []translate.Update
+	for _, data := range replay(t, "bash-permission.sse") {
+		updates, err := tr.Feed(data)
+		require.NoError(t, err)
+		for _, u := range updates {
+			switch u.Kind {
+			case translate.ToolCallStarted, translate.ToolCallInput:
+				order = append(order, u.Kind)
+			}
+			if u.Kind == translate.ToolCallInput {
+				inputs = append(inputs, u)
+			}
+		}
+	}
+
+	require.Equal(t, []translate.Kind{translate.ToolCallStarted, translate.ToolCallInput}, order,
+		"the empty first snapshot starts the call; the finished one supplies input")
+	require.Len(t, inputs, 1)
+	require.Equal(t, "bash", inputs[0].ToolName)
+	require.NotEmpty(t, inputs[0].ToolCallID)
+	require.JSONEq(t,
+		`{"command":"echo hello > out.txt","description":"Write hello to out.txt"}`,
+		string(inputs[0].RawInput))
+}

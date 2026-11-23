@@ -481,3 +481,75 @@ func TestEditorsOwnPromptIsNotEchoedBack(t *testing.T) {
 
 	require.Empty(t, userChunks(ed), "the editor already shows what the user typed")
 }
+
+// toolDetails returns the most recent title, raw input and locations the
+// editor received for a tool call.
+func toolDetails(ed *editor, id acp.ToolCallId) (title string, rawInput string, locs []acp.ToolCallLocation) {
+	for _, u := range ed.snapshot() {
+		upd := u.ToolCallUpdate
+		if upd == nil || upd.ToolCallId != id {
+			continue
+		}
+		if v, ok := upd.Title.Value(); ok {
+			title = v
+		}
+		if v, ok := upd.RawInput.Value(); ok {
+			rawInput = string(v)
+		}
+		if v, ok := upd.Locations.Value(); ok {
+			locs = v
+		}
+	}
+	return title, rawInput, locs
+}
+
+func TestBashCallShowsCrushsDescriptionAndInput(t *testing.T) {
+	tr := loadTrace(t, "bash-permission.sse")
+	backend := newFakeCrush(tr.sessionID(t), tr)
+	ed := &editor{onPermisson: allow}
+	conn := connect(t, backend, ed)
+	sid := start(t, conn)
+
+	prompt(t, conn, sid, "run it")
+
+	var id acp.ToolCallId
+	for _, u := range ed.snapshot() {
+		if u.ToolCall != nil {
+			id = u.ToolCall.ToolCallId
+		}
+	}
+	require.NotEmpty(t, id)
+	title, raw, _ := toolDetails(ed, id)
+	require.Equal(t, "Write hello to out.txt", title)
+	require.JSONEq(t,
+		`{"command":"echo hello > out.txt","description":"Write hello to out.txt"}`, raw)
+}
+
+func TestFileToolCallPointsAtTheFile(t *testing.T) {
+	backend := newFakeCrush("sess-1", nil)
+	ed := &editor{}
+	conn := connect(t, backend, ed)
+	start(t, conn)
+
+	input, err := json.Marshal(map[string]any{"file_path": "/work/proj/main.go"})
+	require.NoError(t, err)
+	event, err := json.Marshal(map[string]any{
+		"type": "message",
+		"payload": map[string]any{"type": "updated", "payload": map[string]any{
+			"id": "m1", "role": "assistant", "session_id": "sess-1",
+			"parts": []any{map[string]any{"type": "tool_call", "data": map[string]any{
+				"id": "c1", "name": "view", "input": string(input), "finished": true,
+			}}},
+		}},
+	})
+	require.NoError(t, err)
+	backend.events <- event
+
+	require.Eventually(t, func() bool {
+		title, _, _ := toolDetails(ed, "c1")
+		return title != ""
+	}, 2*time.Second, 10*time.Millisecond)
+	title, _, locs := toolDetails(ed, "c1")
+	require.Equal(t, "View /work/proj/main.go", title)
+	require.Equal(t, []acp.ToolCallLocation{{Path: "/work/proj/main.go"}}, locs)
+}

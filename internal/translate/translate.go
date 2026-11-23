@@ -22,6 +22,9 @@ const (
 	UserChunk
 	// ToolCallStarted is the first sighting of a tool call.
 	ToolCallStarted
+	// ToolCallInput carries a tool call's complete input, which arrives after
+	// the call is first seen.
+	ToolCallInput
 	// ToolCallFinished carries a tool call's result.
 	ToolCallFinished
 	// PermissionRequested asks the client to approve a tool call.
@@ -42,6 +45,7 @@ type Update struct {
 	ToolName   string
 	Output     string
 	IsError    bool
+	RawInput   jsontext.Value // ToolCallInput: the tool's JSON arguments
 
 	// Permission fields, set for PermissionRequested.
 	PermissionID  string
@@ -59,6 +63,7 @@ type Translator struct {
 	sentThought map[string]int
 	sentUser    map[string]int
 	startedTool map[string]bool
+	inputTool   map[string]bool
 	doneTool    map[string]bool
 	ended       map[string]bool
 }
@@ -70,6 +75,7 @@ func New() *Translator {
 		sentThought: map[string]int{},
 		sentUser:    map[string]int{},
 		startedTool: map[string]bool{},
+		inputTool:   map[string]bool{},
 		doneTool:    map[string]bool{},
 		ended:       map[string]bool{},
 	}
@@ -183,17 +189,27 @@ func (t *Translator) part(msg message, p part) ([]Update, error) {
 
 func (t *Translator) toolCall(data jsontext.Value) ([]Update, error) {
 	var d struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Input    string `json:"input"`
+		Finished bool   `json:"finished"`
 	}
 	if err := json.Unmarshal(data, &d); err != nil {
 		return nil, err
 	}
-	if t.startedTool[d.ID] {
-		return nil, nil
+
+	var updates []Update
+	if !t.startedTool[d.ID] {
+		t.startedTool[d.ID] = true
+		updates = append(updates, Update{Kind: ToolCallStarted, ToolCallID: d.ID, ToolName: d.Name})
 	}
-	t.startedTool[d.ID] = true
-	return []Update{{Kind: ToolCallStarted, ToolCallID: d.ID, ToolName: d.Name}}, nil
+	if d.Finished && d.Input != "" && !t.inputTool[d.ID] {
+		t.inputTool[d.ID] = true
+		updates = append(updates, Update{
+			Kind: ToolCallInput, ToolCallID: d.ID, ToolName: d.Name, RawInput: jsontext.Value(d.Input),
+		})
+	}
+	return updates, nil
 }
 
 func (t *Translator) toolResult(data jsontext.Value) ([]Update, error) {

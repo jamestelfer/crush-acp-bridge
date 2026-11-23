@@ -228,6 +228,14 @@ func (a *Agent) forward(u *translate.Update) {
 			acp.WithStartKind(toolKind(u.ToolName)),
 			acp.WithStartStatus(acp.ToolCallStatusInProgress),
 		)})
+	case translate.ToolCallInput:
+		title, locs := describeTool(u.ToolName, u.RawInput)
+		_ = a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateToolCall(
+			acp.ToolCallId(u.ToolCallID),
+			acp.WithUpdateTitle(title),
+			acp.WithUpdateLocations(locs),
+			acp.WithUpdateRawInput(u.RawInput),
+		)})
 	case translate.ToolCallFinished:
 		status := acp.ToolCallStatusCompleted
 		if u.IsError {
@@ -249,25 +257,6 @@ func (a *Agent) forward(u *translate.Update) {
 		case s.turn <- acp.StopReason(u.StopReason):
 		default:
 		}
-	}
-}
-
-// toolKind maps a Crush tool name to the ACP tool kind editors use for icons
-// and grouping.
-func toolKind(name string) acp.ToolKind {
-	switch name {
-	case "bash":
-		return acp.ToolKindExecute
-	case "edit", "multiedit", "write", "lsp_replace_symbol":
-		return acp.ToolKindEdit
-	case "view", "ls", "glob":
-		return acp.ToolKindRead
-	case "grep", "sourcegraph":
-		return acp.ToolKindSearch
-	case "fetch", "agentic_fetch", "download":
-		return acp.ToolKindFetch
-	default:
-		return acp.ToolKindOther
 	}
 }
 
