@@ -31,6 +31,7 @@ const (
 // Update is a single incremental change derived from a Crush event.
 type Update struct {
 	Kind      Kind
+	SessionID string
 	MessageID string
 	Text      string
 
@@ -78,9 +79,10 @@ type envelope struct {
 }
 
 type message struct {
-	ID    string `json:"id"`
-	Role  string `json:"role"`
-	Parts []part `json:"parts"`
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	Role      string `json:"role"`
+	Parts     []part `json:"parts"`
 }
 
 type part struct {
@@ -118,6 +120,9 @@ func (t *Translator) message(raw jsontext.Value) ([]Update, error) {
 			return nil, fmt.Errorf("decode %s part: %w", p.Type, err)
 		}
 		updates = append(updates, u...)
+	}
+	for i := range updates {
+		updates[i].SessionID = msg.SessionID
 	}
 	return updates, nil
 }
@@ -214,6 +219,7 @@ func (t *Translator) finish(msgID string, data jsontext.Value) ([]Update, error)
 func (t *Translator) permission(raw jsontext.Value) ([]Update, error) {
 	var d struct {
 		ID          string `json:"id"`
+		SessionID   string `json:"session_id"`
 		ToolCallID  string `json:"tool_call_id"`
 		ToolName    string `json:"tool_name"`
 		Description string `json:"description"`
@@ -222,7 +228,7 @@ func (t *Translator) permission(raw jsontext.Value) ([]Update, error) {
 		return nil, fmt.Errorf("decode permission request: %w", err)
 	}
 	return []Update{{
-		Kind: PermissionRequested, PermissionID: d.ID, ToolCallID: d.ToolCallID,
+		Kind: PermissionRequested, SessionID: d.SessionID, PermissionID: d.ID, ToolCallID: d.ToolCallID,
 		ToolName: d.ToolName, Description: d.Description, RawPermission: raw,
 	}}, nil
 }

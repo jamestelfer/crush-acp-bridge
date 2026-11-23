@@ -189,3 +189,21 @@ func TestCancelledTurnReportsCancelled(t *testing.T) {
 		[]string{"end_turn", "cancelled", "end_turn"},
 		stopReasons(t, "long-text-cancel.sse"))
 }
+
+func TestUpdatesCarryTheirSessionID(t *testing.T) {
+	for _, name := range []string{"bash-permission.sse", "long-text-cancel.sse"} {
+		t.Run(name, func(t *testing.T) {
+			tr := translate.New()
+			var n int
+			for _, data := range replay(t, name) {
+				updates, err := tr.Feed(data)
+				require.NoError(t, err)
+				for _, u := range updates {
+					n++
+					require.NotEmpty(t, u.SessionID, "update kind %d has no session", u.Kind)
+				}
+			}
+			require.NotZero(t, n)
+		})
+	}
+}
