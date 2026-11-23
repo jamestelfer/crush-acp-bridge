@@ -72,3 +72,24 @@ func capitalise(s string) string {
 	}
 	return string(unicode.ToUpper(r)) + strings.ToLower(s[n:])
 }
+
+// permissionSummary is the text shown beside a permission prompt: the command
+// or the main argument of the tool call, else the fallback.
+func permissionSummary(params jsontext.Value, fallback string) string {
+	var a toolArgs
+	if json.Unmarshal(params, &a) == nil {
+		for _, v := range []string{a.Command, a.FilePath, a.Path, a.URL, a.Pattern, a.Query, a.Description} {
+			if v != "" {
+				return v
+			}
+		}
+	}
+	return fallback
+}
+
+// rawPatch sets a raw-JSON patch field. The SDK types these with the v1
+// json.RawMessage, which this repository may not import, so the type is
+// inferred from the field passed in.
+func rawPatch[T ~[]byte](_ acp.Patch[T], raw []byte) acp.Patch[T] {
+	return acp.PatchSet(T(raw))
+}

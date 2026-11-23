@@ -256,3 +256,22 @@ func TestToolInputIsEmittedOnceWhenComplete(t *testing.T) {
 		`{"command":"echo hello > out.txt","description":"Write hello to out.txt"}`,
 		string(inputs[0].RawInput))
 }
+
+func TestPermissionRequestCarriesTheToolsParameters(t *testing.T) {
+	tr := translate.New()
+	var perm translate.Update
+	for _, data := range replay(t, "bash-permission.sse") {
+		updates, err := tr.Feed(data)
+		require.NoError(t, err)
+		for _, u := range updates {
+			if u.Kind == translate.PermissionRequested {
+				perm = u
+			}
+		}
+	}
+
+	require.JSONEq(t, `{
+		"description": "Write hello to out.txt", "command": "echo hello > out.txt",
+		"working_dir": "", "run_in_background": false, "auto_background_after": 0
+	}`, string(perm.RawParams))
+}

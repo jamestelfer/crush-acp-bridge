@@ -57,6 +57,7 @@ func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts .
 		opt(a)
 	}
 	conn := acp.NewAgentSideConnection(a, out, in)
+	conn.SetLogger(a.log) // the SDK's own diagnostics follow --log-format
 	a.conn = conn
 
 	select {
@@ -340,6 +341,11 @@ func (a *Agent) askPermission(backend Backend, u translate.Update) {
 			ToolCallId: acp.ToolCallId(u.ToolCallID),
 			Title:      acp.PatchSet(title),
 			Kind:       acp.PatchSet(toolKind(u.ToolName)),
+			Status:     acp.PatchSet(acp.ToolCallStatusPending),
+			RawInput:   rawPatch(acp.ToolCallUpdate{}.RawInput, u.RawParams),
+			Content: acp.PatchSet([]acp.ToolCallContent{
+				acp.ToolContent(acp.TextBlock(permissionSummary(u.RawParams, title))),
+			}),
 		},
 		Options: []acp.PermissionOption{
 			{OptionId: allowOnce, Name: "Allow", Kind: acp.PermissionOptionKindAllowOnce},

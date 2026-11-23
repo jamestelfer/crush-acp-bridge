@@ -229,7 +229,9 @@ func connectWith(t *testing.T, open bridge.Opener, ed *editor, opts ...bridge.Op
 		<-done
 	})
 
-	return acp.NewClientSideConnection(ed, toAgentW, toEditorR)
+	conn := acp.NewClientSideConnection(ed, toAgentW, toEditorR)
+	conn.SetLogger(slog.New(slog.DiscardHandler))
+	return conn
 }
 
 // start initialises the connection and creates a session.
@@ -778,4 +780,62 @@ func TestEndOfTheCrushEventStreamIsLogged(t *testing.T) {
 	rec := logs.await(t, "crush event stream closed")
 	require.Equal(t, "WARN", rec["level"])
 	require.Equal(t, "/work/proj", rec["cwd"])
+}
+
+func TestPermissionRequestShowsTheCommandToBeRun(t *testing.T) {
+	tr := loadTrace(t, "bash-permission.sse")
+	backend := newFakeCrush(tr.sessionID(t), tr)
+	requests := make(chan acp.RequestPermissionRequest, 1)
+	ed := &editor{onPermisson: func(r acp.RequestPermissionRequest) acp.RequestPermissionResponse {
+		requests <- r
+		return allow(r)
+	}}
+	conn := connect(t, backend, ed)
+	sid := start(t, conn)
+
+	prompt(t, conn, sid, "run it")
+
+	var asked acp.RequestPermissionRequest
+	select {
+	case asked = <-requests:
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "the editor was never asked for permission")
+	}
+	raw, ok := asked.ToolCall.RawInput.Value()
+	require.True(t, ok, "the request must say what will run")
+	require.JSONEq(t, `{
+		"description": "Write hello to out.txt", "command": "echo hello > out.txt",
+		"working_dir": "", "run_in_background": false, "auto_background_after": 0
+	}`, string(raw))
+	status, ok := asked.ToolCall.Status.Value()
+	require.True(t, ok)
+	require.Equal(t, acp.ToolCallStatusPending, status)
+	content, ok := asked.ToolCall.Content.Value()
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	require.Equal(t, "echo hello > out.txt", content[0].Content.Content.Text.Text)
+}
+
+func TestACPLibraryDiagnosticsUseTheStructuredLogger(t *testing.T) {
+	logs := &logCapture{}
+	toAgentR, toAgentW := io.Pipe()
+	toEditorR, toEditorW := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = bridge.Serve(t.Context(), func(context.Context, string) (bridge.Backend, error) {
+			return newFakeCrush("sess-1", nil), nil
+		}, toAgentR, toEditorW, bridge.WithLogger(logs.logger()))
+	}()
+	conn := acp.NewClientSideConnection(&editor{}, toAgentW, toEditorR)
+	conn.SetLogger(slog.New(slog.DiscardHandler))
+	_, err := conn.Initialize(t.Context(), acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
+	require.NoError(t, err)
+
+	require.NoError(t, toAgentW.Close()) // the editor goes away
+
+	rec := logs.await(t, "connection closed")
+	require.Equal(t, "INFO", rec["level"])
+	<-done
+	_ = toEditorW.Close()
 }

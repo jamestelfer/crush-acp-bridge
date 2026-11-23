@@ -70,6 +70,7 @@ type Update struct {
 	PermissionID  string
 	Description   string
 	RawPermission jsontext.Value // the request as sent; echoed back to grant it
+	RawParams     jsontext.Value // the tool's parameters, as shown in the request
 
 	// StopReason is set for TurnEnded: end_turn, cancelled, max_tokens or error.
 	StopReason string
@@ -271,18 +272,19 @@ func (t *Translator) finish(msgID string, data jsontext.Value) ([]Update, error)
 
 func (t *Translator) permission(raw jsontext.Value) ([]Update, error) {
 	var d struct {
-		ID          string `json:"id"`
-		SessionID   string `json:"session_id"`
-		ToolCallID  string `json:"tool_call_id"`
-		ToolName    string `json:"tool_name"`
-		Description string `json:"description"`
+		ID          string         `json:"id"`
+		SessionID   string         `json:"session_id"`
+		ToolCallID  string         `json:"tool_call_id"`
+		ToolName    string         `json:"tool_name"`
+		Description string         `json:"description"`
+		Params      jsontext.Value `json:"params"`
 	}
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return nil, fmt.Errorf("decode permission request: %w", err)
 	}
 	return []Update{{
 		Kind: PermissionRequested, SessionID: d.SessionID, PermissionID: d.ID, ToolCallID: d.ToolCallID,
-		ToolName: d.ToolName, Description: d.Description, RawPermission: raw,
+		ToolName: d.ToolName, Description: d.Description, RawPermission: raw, RawParams: d.Params,
 	}}, nil
 }
 
