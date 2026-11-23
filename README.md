@@ -32,19 +32,42 @@ go install github.com/jamestelfer/crush-acp-bridge/cmd/cli@latest
 
 ## Usage
 
-### Self-contained: let the bridge run Crush
+### Recommended: share Crush's own server
+
+`--shared` connects to Crush's per-user shared server, the one `crush` uses when run with
+`CRUSH_CLIENT_SERVER=1`. If no server answers, the bridge starts one in the background.
+
+```sh
+crush-acp-bridge --shared
+```
+
+- The server outlives the bridge that started it. It exits on Crush's idle timeout, 60 seconds after its
+  last client leaves.
+- Any number of bridges, and Crush TUIs, use the one server. Several agents can work in the same directory.
+- The server listens on a Unix socket: `crush-<uid>.sock` in `$XDG_RUNTIME_DIR`, or in the temporary
+  directory. `--crush-socket` overrides it.
+- A server the bridge starts logs to `crush-acp-bridge/shared-server.log` in the user cache directory.
+- If the server goes away, the bridge reconnects and starts a new one. A turn in flight ends with an error;
+  prompts sent while it reconnects wait for it.
+- `crush` must be on `PATH`, or pass `--crush-bin`.
+- Not available on Windows yet. Use `--managed` there.
+
+The bridge sends its environment when it opens a project, as Crush clients do. Set provider variables
+such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` on the bridge. The first client to open a project sets
+its environment for every later client.
+
+### Self-contained: one server per bridge
 
 `--managed` starts `crush server` as a child process on a free local port, connects to it, and stops it
-when the editor disconnects. No separate server is needed, and the server's idle timeout does not apply.
+when the editor disconnects. The server's idle timeout does not apply.
 
 ```sh
 crush-acp-bridge --managed
 ```
 
-`crush` must be on `PATH`, or pass `--crush-bin`. Provider settings such as `VERTEXAI_PROJECT` and
-`VERTEXAI_LOCATION` are read from the bridge's environment and passed to the server. Add
-`--listen 127.0.0.1:8484` to fix the address so a Crush TUI can attach to the same server (see
-[Share the session](#3-share-the-session-with-the-crush-tui)).
+Crush allows one server per project. A second `--managed` bridge in the same directory fails to open
+it: "data directory already in use by another crush process". Use `--shared` to run several agents in one
+directory.
 
 ### Or: connect to a server you run
 
@@ -79,12 +102,18 @@ Configure the editor to run `crush-acp-bridge` as an ACP agent over stdio. For a
 }
 ```
 
+`--crush-url` also accepts a Unix socket: `unix:///path/to/crush.sock`.
+
+### Flags
+
 | Flag | Environment | Description |
 |---|---|---|
+| `--shared` | | Use Crush's per-user shared server, starting it if needed. Conflicts with `--managed` and an explicit `--crush-url`. |
+| `--crush-socket` | `CRUSH_ACP_CRUSH_SOCKET` | The `--shared` server's Unix socket. Defaults to Crush's own. |
 | `--managed` | | Run `crush server` as a child process. Conflicts with an explicit `--crush-url`. |
-| `--crush-bin` | `CRUSH_ACP_CRUSH_BIN` | The `crush` executable for `--managed`. Defaults to `crush`. |
+| `--crush-bin` | `CRUSH_ACP_CRUSH_BIN` | The `crush` executable for `--shared` and `--managed`. Defaults to `crush`. |
 | `--listen` | | `host:port` for the `--managed` server. Defaults to a free local port. |
-| `--crush-url` | `CRUSH_ACP_URL` | Base URL of the Crush server. Defaults to `http://127.0.0.1:8484`. HTTP only. |
+| `--crush-url` | `CRUSH_ACP_URL` | Base URL of the Crush server: `http://` or `unix://`. Defaults to `http://127.0.0.1:8484`. |
 | `--cwd` | | Open this directory in Crush for every session, ignoring the directory the editor sends. |
 | `--log-level` | `CRUSH_ACP_LOG_LEVEL` | `debug`, `info`, `warn` or `error`. Defaults to `info`. |
 | `--log-format` | `CRUSH_ACP_LOG_FORMAT` | `text` or `json`. Defaults to `text`. |
@@ -95,13 +124,13 @@ messages only. Records carry `session_id` and `cwd` where they apply.
 Each ACP session opens Crush in the directory the editor sends in `session/new`. The bridge fails at
 startup with a clear message if the server is unreachable.
 
-#### 3. Share the session with the Crush TUI
+### Share the session with the Crush TUI
 
-Set `CRUSH_CLIENT_SERVER=1` on every Crush client that connects to the server. The ACP session ID is
-the Crush session ID.
+Run Crush with `CRUSH_CLIENT_SERVER=1`. With `--shared`, no address is needed. Otherwise pass the server's
+`--host`. The ACP session ID is the Crush session ID.
 
 ```sh
-CRUSH_CLIENT_SERVER=1 crush --host http://127.0.0.1:8484 --cwd /path/to/project --session <session-id>
+CRUSH_CLIENT_SERVER=1 crush --cwd /path/to/project --session <session-id>
 ```
 
 Without `CRUSH_CLIENT_SERVER=1`, Crush 0.102.0 ignores `--host` and runs its own agent against the same
@@ -109,10 +138,19 @@ database. Sessions then appear in history, but turns are not shared live: the TU
 see each other's output until a restart. Clients also send their own environment to the server, so a
 TUI that needs a provider must have the same provider variables set.
 
+### Models and modes
+
+Each session offers Crush's models, from every enabled provider, and two modes: `coder` and `plan`. Plan
+analyses and prepares plans without modifying files.
+
+Crush keeps one model and one mode per directory, not per session. Changing either affects every Crush
+client in that directory. A model change is written to the project's `.crush/crush.json`, as
+`crush run --model` does. A mode change is refused while a turn runs.
+
 ### Use with Paseo
 
 [Paseo](https://paseo.sh) runs any ACP agent from `~/.paseo/config.json`, so no plugin is needed. Add a
-provider that runs the bridge in managed mode, then run `paseo reload`:
+provider that runs the bridge in shared mode, then run `paseo reload`:
 
 ```json
 {
@@ -121,7 +159,7 @@ provider that runs the bridge in managed mode, then run `paseo reload`:
       "crush": {
         "extends": "acp",
         "label": "Crush",
-        "command": ["/path/to/crush-acp-bridge", "--managed", "--crush-bin", "/path/to/crush"],
+        "command": ["/path/to/crush-acp-bridge", "--shared", "--crush-bin", "/path/to/crush"],
         "env": { "VERTEXAI_PROJECT": "my-project", "VERTEXAI_LOCATION": "global" }
       }
     }
@@ -129,9 +167,13 @@ provider that runs the bridge in managed mode, then run `paseo reload`:
 }
 ```
 
-Paseo starts one bridge, and one Crush server, per agent, and stops both when the agent ends. Each agent
-works in its own directory, including a git worktree. Permission requests appear in Paseo with the command
-to be run.
+Paseo starts one bridge per agent. The bridges share one Crush server, so several agents can work in
+the same directory. Each agent works in its own directory, including a git worktree. Paseo lists Crush's
+models and modes, and asks for a mode when it creates a Crush agent. Permission requests appear in Paseo
+with the command to be run.
+
+Paseo caches each provider's model list. Run `paseo provider diagnostic crush` to refresh it after
+changing Crush's providers.
 
 ### Try it without an editor
 
@@ -151,15 +193,16 @@ Supported:
 - Permission requests: allow once, allow for the session, and reject.
 - `session/cancel`. The prompt returns the `cancelled` stop reason.
 - User messages typed in other Crush clients, shown in the editor as they arrive.
+- Model selection (`session/set_config_option`) and the `coder` and `plan` modes (`session/set_mode`).
+- Reconnecting after the event stream drops.
 
 Not supported:
 
 - `session/load`, `session/list` and `session/resume`. Reopening a session starts blank.
-- Mode and model switching.
 - Editor file system and terminal delegation. The agent reads files from disk, so unsaved buffers are invisible.
 - Diffs for file edits. Edit calls show a title and location only.
-- Reconnecting after the event stream drops. Restart the bridge.
-- Unix socket servers and Crush question prompts.
+- Crush question prompts.
+- The shared server on Windows, which uses a named pipe.
 - Image and attachment prompts. Only text blocks are sent.
 
 ## Development

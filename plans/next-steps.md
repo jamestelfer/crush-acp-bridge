@@ -61,12 +61,17 @@ Ordered ahead of slice 3: without it, a second Crush agent in a directory fails.
 - [x] Two bridges started together in `--shared` mode end up on one server, covered by a test.
 - [x] Live: two Crush agents in one directory run turns concurrently (two `--shared` bridges in `/tmp/crushlive/proj`; each got its own reply; both started a server and one survived).
 - [x] Live: a Crush client with `CRUSH_CLIENT_SERVER=1` joins the bridges' server (`crush run` held Unix-socket connections and opened no `crush.db` of its own). The TUI uses the same connection path.
-- [ ] A test drops the event stream mid-turn; the bridge reconnects, the turn ends with an error, and the next prompt works.
-- [ ] A test with the server gone for good ends the turn with an error and logs it.
-- [ ] Live: kill the shared server mid-session; the next prompt works.
-- [ ] The Paseo `crush` provider uses `--shared`.
-- [ ] `README.md` documents `--shared` and the limits.
-- [ ] `just verify` passes.
+- [x] A test drops the event stream mid-turn; the bridge reconnects, the turn ends with an error, and the next prompt works. A prompt sent during the reconnect waits for it, up to 30 seconds.
+- [x] A test with the server gone for good ends the turn with an error and logs it. The bridge keeps retrying, with backoff capped at 5 seconds.
+- [x] Live: kill the shared server mid-session; the next prompt works (turn failed with the reconnect message; new server and reconnect in about 2 seconds; next prompt answered).
+- [x] The Paseo `crush` provider uses `--shared` (backup at `~/.paseo/config.json.bak-before-shared`). Live: two Crush agents in one Paseo workspace answered concurrently through one server.
+- [x] `README.md` documents `--shared` and the limits.
+- [x] `just verify` passes.
+
+Notes:
+
+- Paseo now requires an explicit mode (`coder` or `plan`) when it creates a Crush agent from another provider's agent.
+- A permanently gone server makes the bridge retry every 5 seconds, logging a warning each time.
 
 ### 3. `session/list`, `session/load` and `session/resume`
 
@@ -101,3 +106,4 @@ Note: Paseo already marks Crush agents as supporting session persistence and lis
 - 2026-11-24: Slice 1 modes done (`1a27139`). Slice 1 complete. Found the data-directory lock behind slice 5.
 - 2026-11-24: Chose to join Crush's shared server. Merged reconnect and isolation into slice 2, ahead of slice 3. Slice 2 started.
 - 2026-11-24: `--shared` done (`69693ba`), verified live with two concurrent bridges and a `CRUSH_CLIENT_SERVER=1` client. Next: reconnect, Paseo provider, README.
+- 2026-11-24: Reconnect done (`d2ee79d`, `2e6161f`), Paseo switched to `--shared`, README updated. Slice 2 complete. Next: slice 3.
