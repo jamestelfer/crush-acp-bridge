@@ -59,7 +59,7 @@ func (tr trace) sessionID(t *testing.T) string {
 			return id
 		}
 	}
-	t.Fatal("trace has no session ID")
+	require.FailNow(t, "trace has no session ID")
 	return ""
 }
 
@@ -73,7 +73,7 @@ func (tr trace) firstTurn(t *testing.T, reason string) trace {
 			return tr[:i+1]
 		}
 	}
-	t.Fatalf("trace has no assistant finish %q", reason)
+	require.FailNowf(t, "missing finish", "trace has no assistant finish %q", reason)
 	return nil
 }
 
@@ -365,7 +365,7 @@ func (tr trace) cancelledTurn(t *testing.T) (before, atCancel trace) {
 			return tr[start:i], tr[i : i+1]
 		}
 	}
-	t.Fatal("trace has no cancelled turn")
+	require.FailNow(t, "trace has no cancelled turn")
 	return nil, nil
 }
 
@@ -378,31 +378,33 @@ func TestCancelStopsTurnAndReportsCancelled(t *testing.T) {
 	conn := connect(t, backend, ed)
 	sid := start(t, conn)
 
-	result := make(chan acp.PromptResponse, 1)
+	type outcome struct {
+		resp acp.PromptResponse
+		err  error
+	}
+	result := make(chan outcome, 1)
 	go func() {
 		resp, err := conn.Prompt(t.Context(), acp.PromptRequest{
 			SessionId: sid, Prompt: []acp.ContentBlock{acp.TextBlock("write an essay")},
 		})
-		if err != nil {
-			t.Errorf("prompt: %v", err)
-		}
-		result <- resp
+		result <- outcome{resp, err}
 	}()
 	require.Eventually(t, func() bool { return len(ed.snapshot()) > 0 }, 2*time.Second, 10*time.Millisecond,
 		"the turn must be streaming before it is cancelled")
 	select {
 	case <-result:
-		t.Fatal("prompt returned before cancel")
+		require.FailNow(t, "prompt returned before cancel")
 	default:
 	}
 
 	require.NoError(t, conn.Cancel(t.Context(), acp.CancelNotification{SessionId: sid}))
 
 	select {
-	case resp := <-result:
-		require.Equal(t, acp.StopReasonCancelled, resp.StopReason)
+	case got := <-result:
+		require.NoError(t, got.err)
+		require.Equal(t, acp.StopReasonCancelled, got.resp.StopReason)
 	case <-time.After(3 * time.Second):
-		t.Fatal("prompt did not return after cancel")
+		require.FailNow(t, "prompt did not return after cancel")
 	}
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
@@ -437,7 +439,7 @@ func TestEarlierTurnByAnotherClientDoesNotEndNextPrompt(t *testing.T) {
 
 	select {
 	case resp := <-result:
-		t.Fatalf("prompt returned %q before its own turn ended", resp.StopReason)
+		require.FailNowf(t, "early return", "prompt returned %q before its own turn ended", resp.StopReason)
 	case <-time.After(300 * time.Millisecond):
 	}
 }

@@ -233,6 +233,6 @@ func TestEventsStopsWhenContextIsCancelled(t *testing.T) {
 	case _, ok := <-events:
 		require.False(t, ok)
 	case <-time.After(2 * time.Second):
-		t.Fatal("event channel did not close after cancel")
+		require.FailNow(t, "event channel did not close after cancel")
 	}
 }
