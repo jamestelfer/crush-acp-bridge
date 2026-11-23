@@ -6,6 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -80,6 +81,7 @@ func (tr trace) firstTurn(t *testing.T, reason string) trace {
 // fakeCrush is a scripted Crush backend: a prompt replays recorded events.
 type fakeCrush struct {
 	sessionID string
+	ids       []string // handed out in order by NewSession when set
 	script    trace
 	onCancel  trace // replayed when the session is cancelled
 	events    chan []byte
@@ -99,9 +101,18 @@ func newFakeCrush(sessionID string, script trace) *fakeCrush {
 	return &fakeCrush{sessionID: sessionID, script: script, events: make(chan []byte, 1024)}
 }
 
-func (f *fakeCrush) NewSession(context.Context, string) (string, error) { return f.sessionID, nil }
-func (f *fakeCrush) SetCurrentSession(context.Context, string) error    { return nil }
-func (f *fakeCrush) Events(context.Context) (<-chan []byte, error)      { return f.events, nil }
+func (f *fakeCrush) NewSession(context.Context, string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.ids) > 0 {
+		id := f.ids[0]
+		f.ids = f.ids[1:]
+		return id, nil
+	}
+	return f.sessionID, nil
+}
+func (f *fakeCrush) SetCurrentSession(context.Context, string) error { return nil }
+func (f *fakeCrush) Events(context.Context) (<-chan []byte, error)   { return f.events, nil }
 
 func (f *fakeCrush) Prompt(_ context.Context, _ string, text string) error {
 	f.mu.Lock()
@@ -188,9 +199,15 @@ func (*editor) CompleteElicitation(context.Context, acp.CompleteElicitationNotif
 	return errNoFS
 }
 
-// connect serves the bridge over in-memory pipes and returns the editor's
-// view of the connection.
+// connect serves the bridge with a single backend for every directory.
 func connect(t *testing.T, backend bridge.Backend, ed *editor) *acp.ClientSideConnection {
+	t.Helper()
+	return connectWith(t, func(context.Context, string) (bridge.Backend, error) { return backend, nil }, ed)
+}
+
+// connectWith serves the bridge over in-memory pipes and returns the editor's
+// view of the connection.
+func connectWith(t *testing.T, open bridge.Opener, ed *editor) *acp.ClientSideConnection {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -200,7 +217,7 @@ func connect(t *testing.T, backend bridge.Backend, ed *editor) *acp.ClientSideCo
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = bridge.Serve(ctx, backend, toAgentR, toEditorW)
+		_ = bridge.Serve(ctx, open, toAgentR, toEditorW)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -218,7 +235,13 @@ func start(t *testing.T, conn *acp.ClientSideConnection) acp.SessionId {
 
 	_, err := conn.Initialize(t.Context(), acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
 	require.NoError(t, err)
-	sess, err := conn.NewSession(t.Context(), acp.NewSessionRequest{Cwd: "/work/proj", McpServers: []acp.McpServer{}})
+	return newSession(t, conn, "/work/proj")
+}
+
+func newSession(t *testing.T, conn *acp.ClientSideConnection, cwd string) acp.SessionId {
+	t.Helper()
+
+	sess, err := conn.NewSession(t.Context(), acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
 	require.NoError(t, err)
 	return sess.SessionId
 }
@@ -554,4 +577,69 @@ func TestFileToolCallPointsAtTheFile(t *testing.T) {
 	title, _, locs := toolDetails(ed, "c1")
 	require.Equal(t, "View /work/proj/main.go", title)
 	require.Equal(t, []acp.ToolCallLocation{{Path: "/work/proj/main.go"}}, locs)
+}
+
+func TestEachSessionOpensCrushInItsOwnDirectory(t *testing.T) {
+	backends := map[string]*fakeCrush{
+		"/work/a": newFakeCrush("sess-a", nil),
+		"/work/b": newFakeCrush("sess-b", nil),
+	}
+	var mu sync.Mutex
+	var opened []string
+	open := func(_ context.Context, cwd string) (bridge.Backend, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		opened = append(opened, cwd)
+		b, ok := backends[cwd]
+		if !ok {
+			return nil, fmt.Errorf("unexpected directory %q", cwd)
+		}
+		return b, nil
+	}
+	conn := connectWith(t, open, &editor{})
+	_, err := conn.Initialize(t.Context(), acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
+	require.NoError(t, err)
+
+	sidA := newSession(t, conn, "/work/a")
+	sidB := newSession(t, conn, "/work/b")
+	require.Equal(t, acp.SessionId("sess-a"), sidA)
+	require.Equal(t, acp.SessionId("sess-b"), sidB)
+
+	// A prompt reaches the workspace of its own session only.
+	go func() {
+		_, _ = conn.Prompt(t.Context(), acp.PromptRequest{SessionId: sidB, Prompt: []acp.ContentBlock{acp.TextBlock("hi")}})
+	}()
+	require.Eventually(t, func() bool {
+		backends["/work/b"].mu.Lock()
+		defer backends["/work/b"].mu.Unlock()
+		return len(backends["/work/b"].prompts) == 1
+	}, 2*time.Second, 10*time.Millisecond)
+	require.Empty(t, backends["/work/a"].prompts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{"/work/a", "/work/b"}, opened)
+}
+
+func TestSessionsInOneDirectoryShareAWorkspace(t *testing.T) {
+	backend := newFakeCrush("", nil)
+	backend.ids = []string{"sess-1", "sess-2"}
+	var mu sync.Mutex
+	var opened int
+	open := func(context.Context, string) (bridge.Backend, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		opened++
+		return backend, nil
+	}
+	conn := connectWith(t, open, &editor{})
+	_, err := conn.Initialize(t.Context(), acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
+	require.NoError(t, err)
+
+	newSession(t, conn, "/work/a")
+	newSession(t, conn, "/work/a")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, 1, opened, "one workspace and one event stream per directory")
 }

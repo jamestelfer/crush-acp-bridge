@@ -236,3 +236,17 @@ func TestEventsStopsWhenContextIsCancelled(t *testing.T) {
 		require.FailNow(t, "event channel did not close after cancel")
 	}
 }
+
+func TestPingSucceedsAgainstAHealthyServer(t *testing.T) {
+	srv := newFakeServer(t, map[string]http.HandlerFunc{
+		"GET /v1/health": func(http.ResponseWriter, *http.Request) {},
+	})
+
+	require.NoError(t, crush.New(srv.URL).Ping(t.Context()))
+}
+
+func TestPingFailsWhenNothingIsListening(t *testing.T) {
+	err := crush.New("http://127.0.0.1:1").Ping(t.Context())
+
+	require.Error(t, err)
+}

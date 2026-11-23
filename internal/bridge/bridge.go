@@ -30,10 +30,19 @@ type Backend interface {
 
 var _ Backend = (*crush.Workspace)(nil)
 
+// Opener returns the Backend for the project in cwd. The bridge calls it once
+// per directory and reuses the result.
+type Opener func(ctx context.Context, cwd string) (Backend, error)
+
 // Serve runs the ACP agent over in and out until the peer disconnects or ctx
-// ends.
-func Serve(ctx context.Context, backend Backend, in io.Reader, out io.Writer) error {
-	a := &Agent{backend: backend, sessions: map[string]*session{}, serveCtx: ctx}
+// ends. Each ACP session opens Crush in the directory the editor sends.
+func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer) error {
+	a := &Agent{
+		open:       open,
+		workspaces: map[string]Backend{},
+		sessions:   map[string]*session{},
+		serveCtx:   ctx,
+	}
 	conn := acp.NewAgentSideConnection(a, out, in)
 	a.conn = conn
 
@@ -48,20 +57,19 @@ func Serve(ctx context.Context, backend Backend, in io.Reader, out io.Writer) er
 type Agent struct {
 	unsupported
 
-	backend  Backend
+	open     Opener
 	conn     *acp.AgentSideConnection
 	serveCtx context.Context
 
-	startEvents sync.Once
-	eventsErr   error
-
-	mu       sync.Mutex
-	sessions map[string]*session
+	mu         sync.Mutex
+	workspaces map[string]Backend // by directory
+	sessions   map[string]*session
 }
 
 // session tracks one in-flight turn.
 type session struct {
-	turn chan acp.StopReason
+	backend Backend
+	turn    chan acp.StopReason
 	// active is set while a Prompt call waits for its turn. Turns started by
 	// other clients (the Crush TUI) also end in this session; their ends must
 	// not complete a later prompt.
@@ -103,20 +111,21 @@ func (a *Agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 }
 
 // NewSession creates a Crush session and starts following its events.
-func (a *Agent) NewSession(ctx context.Context, _ acp.NewSessionRequest) (acp.NewSessionResponse, error) {
-	if err := a.ensureEvents(); err != nil {
-		return acp.NewSessionResponse{}, err
-	}
-	id, err := a.backend.NewSession(ctx, "ACP")
+func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+	backend, err := a.workspace(ctx, req.Cwd)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
-	if err := a.backend.SetCurrentSession(ctx, id); err != nil {
+	id, err := backend.NewSession(ctx, "ACP")
+	if err != nil {
+		return acp.NewSessionResponse{}, err
+	}
+	if err := backend.SetCurrentSession(ctx, id); err != nil {
 		return acp.NewSessionResponse{}, err
 	}
 
 	a.mu.Lock()
-	a.sessions[id] = &session{turn: make(chan acp.StopReason, 1)}
+	a.sessions[id] = &session{backend: backend, turn: make(chan acp.StopReason, 1)}
 	a.mu.Unlock()
 	return acp.NewSessionResponse{SessionId: acp.SessionId(id)}, nil
 }
@@ -143,7 +152,7 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	}
 	s.setSent(text.String())
 	defer s.setSent("")
-	if err := a.backend.Prompt(ctx, string(req.SessionId), text.String()); err != nil {
+	if err := s.backend.Prompt(ctx, string(req.SessionId), text.String()); err != nil {
 		return acp.PromptResponse{}, err
 	}
 
@@ -169,7 +178,11 @@ const cancelGrace = 2 * time.Second
 // Cancel stops the running turn. The turn ends when Crush reports the
 // cancelled finish, which makes Prompt return StopReasonCancelled.
 func (a *Agent) Cancel(ctx context.Context, n acp.CancelNotification) error {
-	return a.backend.Cancel(ctx, string(n.SessionId))
+	s := a.session(string(n.SessionId))
+	if s == nil {
+		return fmt.Errorf("unknown session %q", n.SessionId)
+	}
+	return s.backend.Cancel(ctx, string(n.SessionId))
 }
 
 func (a *Agent) session(id string) *session {
@@ -178,17 +191,26 @@ func (a *Agent) session(id string) *session {
 	return a.sessions[id]
 }
 
-// ensureEvents starts the single event loop shared by all sessions.
-func (a *Agent) ensureEvents() error {
-	a.startEvents.Do(func() {
-		events, err := a.backend.Events(a.serveCtx)
-		if err != nil {
-			a.eventsErr = err
-			return
-		}
-		go a.pump(events)
-	})
-	return a.eventsErr
+// workspace returns the backend for cwd, opening it and starting its event
+// loop on first use.
+func (a *Agent) workspace(ctx context.Context, cwd string) (Backend, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if b, ok := a.workspaces[cwd]; ok {
+		return b, nil
+	}
+	b, err := a.open(ctx, cwd)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", cwd, err)
+	}
+	events, err := b.Events(a.serveCtx)
+	if err != nil {
+		return nil, err
+	}
+	a.workspaces[cwd] = b
+	go a.pump(events)
+	return b, nil
 }
 
 // pump translates Crush events and forwards them in order to the editor.
@@ -248,7 +270,7 @@ func (a *Agent) forward(u *translate.Update) {
 		)})
 	case translate.PermissionRequested:
 		// The editor may take minutes to answer; do not stall the event loop.
-		go a.askPermission(*u)
+		go a.askPermission(s.backend, *u)
 	case translate.TurnEnded:
 		if !s.active.Load() {
 			return
@@ -262,7 +284,7 @@ func (a *Agent) forward(u *translate.Update) {
 
 // askPermission relays a Crush permission request to the editor and sends the
 // decision back. Anything other than an explicit allow denies the request.
-func (a *Agent) askPermission(u translate.Update) {
+func (a *Agent) askPermission(backend Backend, u translate.Update) {
 	const (
 		allowOnce   acp.PermissionOptionId = "allow_once"
 		allowAlways acp.PermissionOptionId = "allow_always"
@@ -296,5 +318,5 @@ func (a *Agent) askPermission(u translate.Update) {
 			action = crush.AllowForSession
 		}
 	}
-	_ = a.backend.Grant(a.serveCtx, u.RawPermission, action)
+	_ = backend.Grant(a.serveCtx, u.RawPermission, action)
 }

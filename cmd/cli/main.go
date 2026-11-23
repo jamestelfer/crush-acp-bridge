@@ -50,7 +50,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			},
 			&cli.StringFlag{
 				Name:  "cwd",
-				Usage: "project directory to open in Crush (default: current directory)",
+				Usage: "always open this project directory in Crush, ignoring the directory the editor sends",
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -92,22 +92,22 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return exitFailure
 }
 
-// serve opens the project in Crush and relays ACP traffic until the editor
-// disconnects. stdout carries ACP messages only; diagnostics go to stderr.
-func serve(ctx context.Context, crushURL, cwd string, stdin io.Reader, stdout io.Writer) error {
-	if cwd == "" {
-		var err error
-		if cwd, err = os.Getwd(); err != nil {
-			return fmt.Errorf("resolve working directory: %w", err)
-		}
-	}
-
-	ws, err := crush.New(crushURL).OpenWorkspace(ctx, cwd)
-	if err != nil {
+// serve relays ACP traffic until the editor disconnects. Crush is opened in
+// the directory each ACP session names, or in forceCwd when set. stdout
+// carries ACP messages only; diagnostics go to stderr.
+func serve(ctx context.Context, crushURL, forceCwd string, stdin io.Reader, stdout io.Writer) error {
+	client := crush.New(crushURL)
+	if err := client.Ping(ctx); err != nil {
 		return fmt.Errorf("%w (is `crush server` running at %s?)", err, crushURL)
 	}
 
-	if err := bridge.Serve(ctx, ws, stdin, stdout); err != nil && !errors.Is(err, context.Canceled) {
+	open := func(ctx context.Context, cwd string) (bridge.Backend, error) {
+		if forceCwd != "" {
+			cwd = forceCwd
+		}
+		return client.OpenWorkspace(ctx, cwd)
+	}
+	if err := bridge.Serve(ctx, open, stdin, stdout); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil

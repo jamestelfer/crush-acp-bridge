@@ -212,3 +212,11 @@ func pump(ctx context.Context, body io.ReadCloser, out chan<- []byte) {
 		}
 	}
 }
+
+// Ping checks that the server is reachable and healthy.
+func (c *Client) Ping(ctx context.Context) error {
+	if err := c.do(ctx, http.MethodGet, "/health", nil, nil); err != nil {
+		return fmt.Errorf("ping: %w", err)
+	}
+	return nil
+}
