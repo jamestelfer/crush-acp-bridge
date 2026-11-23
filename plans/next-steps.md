@@ -32,13 +32,38 @@ Notes:
 - Crush keeps one model per directory. Switching writes `.crush/crush.json` in the project, as `crush run --model` does, and affects every client there.
 - Paseo caches the provider catalogue. `paseo provider diagnostic crush` re-probes it.
 
-### 2. Reconnect after a dropped event stream
+### 2. Shared Crush server, and reconnect (was slices 2 and 5)
 
-The event stream ends when SSE drops, which hangs a live turn.
+Ordered ahead of slice 3: without it, a second Crush agent in a directory fails.
 
-- [ ] A test drops the SSE connection mid-turn on the fake backend; the editor receives every chunk exactly once and one `end_turn`.
-- [ ] A test with the backend gone for good ends the turn with an error and logs it.
-- [ ] A live check kills and restarts the server mid-session.
+**Problem.** Crush allows one process per project data directory (`.crush/`). A second server opening the same project gets `500 failed to connect to database: data directory already in use by another crush process`. Each `--managed` bridge runs its own server, so this breaks a second Crush agent in the same Paseo workspace, Paseo's catalogue refresh while an agent is live there, and a Crush TUI in that directory.
+
+**Design (chosen: join Crush's own shared server).**
+
+- A new `--shared` mode connects to Crush's default per-user socket, the one a TUI with `CRUSH_CLIENT_SERVER=1` uses: `$XDG_RUNTIME_DIR` (else the temp dir) plus `crush-<uid>.sock`, falling back to `/tmp` past 104 bytes. This rule is the only part copied from Crush; `--crush-socket` overrides it and a test pins it.
+- When nothing answers, the bridge starts a detached `crush server` (new session, output to a log file under the user cache directory, no `--host` for the default socket) and polls `/v1/health`.
+- No start-up lock is needed: a server that finds a live one on its socket exits with "address already in use", and Crush's own `<socket>.lock` guards simultaneous binds and stale-socket removal. The bridge treats its own server exiting as normal while it keeps polling.
+- The idle timeout is left at Crush's default. Each connected bridge holds its workspace open; the server exits 60s after the last client leaves.
+- The bridge sends its environment when it opens a workspace, as Crush clients do, so provider credentials reach a server another client started. The first client to open a path sets its environment.
+- `--managed` stays as the fallback, and is the only self-contained mode on Windows until named pipes are supported (`go-winio`).
+- Reconnect: when the event stream ends, the bridge ensures the server again, reopens its workspaces, reports current sessions and resubscribes. A turn in flight ends with an error.
+
+**Limits.** A plain `crush` TUI without `CRUSH_CLIENT_SERVER=1` runs in-process and still locks the project.
+
+**Acceptance.**
+
+- [ ] The client talks HTTP over a Unix socket (`unix://` URL), covered by a test.
+- [ ] Opening a workspace sends the bridge's environment, covered by a test.
+- [ ] A test pins the default socket path rule.
+- [ ] `--shared` connects to a running server, or starts a detached one that outlives the bridge, covered by tests using the fake Crush.
+- [ ] Two bridges started together in `--shared` mode end up on one server, covered by a test.
+- [ ] Live: two Crush agents in one directory run turns concurrently.
+- [ ] Live: a TUI with `CRUSH_CLIENT_SERVER=1` joins the bridges' server.
+- [ ] A test drops the event stream mid-turn; the bridge reconnects, the turn ends with an error, and the next prompt works.
+- [ ] A test with the server gone for good ends the turn with an error and logs it.
+- [ ] Live: kill the shared server mid-session; the next prompt works.
+- [ ] The Paseo `crush` provider uses `--shared`.
+- [ ] `README.md` documents `--shared` and the limits.
 - [ ] `just verify` passes.
 
 ### 3. `session/list`, `session/load` and `session/resume`
@@ -58,23 +83,6 @@ Note: Paseo already marks Crush agents as supporting session persistence and lis
 - [ ] A live edit permission shows a diff in Paseo.
 - [ ] `just verify` passes.
 
-### 5. Isolation per Paseo agent
-
-Crush allows one process per project data directory (`.crush/`). A second managed server opening the same project gets `500 failed to connect to database: data directory already in use by another crush process`. Each managed bridge runs its own server, so this breaks:
-
-- a second Crush agent in the same Paseo workspace;
-- Paseo's catalogue refresh while a Crush agent is live in that directory ("Internal error"; Paseo keeps the last catalogue);
-- the Crush TUI run in-process in the same directory.
-
-Options, not yet chosen:
-
-- A. Managed bridges share one Crush server per user, found at a well-known address, so the server's lock is held once.
-- B. Each bridge opens the workspace with its own data directory, if `POST /workspaces` honours `data_dir`. This loses shared history with the TUI.
-
-- [ ] Two bridges in the same cwd run concurrent turns without cross-talk, covered by a test with two managed fake servers.
-- [ ] `README.md` states the behaviour.
-- [ ] `just verify` passes.
-
 ### 6. Unsupported methods
 
 - [ ] Paseo logs show no unexpected method-not-found errors during a full session.
@@ -88,4 +96,5 @@ Options, not yet chosen:
 
 - 2026-11-24: Spike commits pushed. Plan written. Slice 1 started.
 - 2026-11-24: Slice 1 model selector done (`7cca523`), verified with `TestLiveModelSwitch` and a Paseo agent.
-- 2026-11-24: Slice 1 modes done (`1a27139`). Slice 1 complete. Found the data-directory lock behind slice 5; awaiting a decision on A or B.
+- 2026-11-24: Slice 1 modes done (`1a27139`). Slice 1 complete. Found the data-directory lock behind slice 5.
+- 2026-11-24: Chose to join Crush's shared server. Merged reconnect and isolation into slice 2, ahead of slice 3. Slice 2 started.
