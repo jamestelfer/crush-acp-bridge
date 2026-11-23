@@ -7,14 +7,18 @@
 package fakecrush
 
 import (
+	"context"
 	"encoding/json/v2"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/jamestelfer/crush-acp-bridge/internal/crushserver"
 )
 
 // EnvMode selects how a re-executed test binary behaves as `crush server`:
@@ -70,29 +74,57 @@ func MaybeRunAsServer() {
 		os.Exit(0)
 	}
 
-	addr := hostArg(os.Args[1:])
-	srv := &http.Server{Addr: addr, Handler: Handler(nil), ReadHeaderTimeout: time.Second}
+	network, addr := hostArg(os.Args[1:])
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), network, addr)
+	if err != nil {
+		// Like Crush, a server that finds its socket taken gives up.
+		fmt.Fprintln(os.Stderr, "fake crush:", err)
+		os.Exit(1)
+	}
+	exit := func() {
+		_ = ln.Close() // removes a Unix socket file
+		os.Exit(0)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", Handler(nil))
+	mux.HandleFunc("GET /_fake/pid", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, os.Getpid())
+	})
+	mux.HandleFunc("POST /_fake/exit", func(http.ResponseWriter, *http.Request) {
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			exit()
+		}()
+	})
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: time.Second}
 	go func() {
 		stop := make(chan os.Signal, 1)
 		signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 		<-stop
-		os.Exit(0)
+		exit()
 	}()
-	fmt.Fprintln(os.Stderr, "fake crush: listening on", addr)
-	if err := srv.ListenAndServe(); err != nil {
+	fmt.Fprintln(os.Stderr, "fake crush: listening on", network, addr)
+	if err := srv.Serve(ln); err != nil {
 		fmt.Fprintln(os.Stderr, "fake crush:", err)
 		os.Exit(1)
 	}
 }
 
-// hostArg returns the host:port from `--host <url>` in args.
-func hostArg(args []string) string {
+// hostArg returns the listen address from `--host <url>` in args. Without
+// one, the fake listens where Crush's default server does.
+func hostArg(args []string) (network, addr string) {
 	for i, a := range args {
 		if a == "--host" && i+1 < len(args) {
-			if u, err := url.Parse(args[i+1]); err == nil {
-				return u.Host
+			u, err := url.Parse(args[i+1])
+			if err != nil {
+				break
 			}
+			if u.Scheme == "unix" {
+				return "unix", u.Path
+			}
+			return "tcp", u.Host
 		}
 	}
-	return "127.0.0.1:0"
+	return "unix", crushserver.DefaultSocket()
 }

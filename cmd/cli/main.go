@@ -2,6 +2,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -54,9 +55,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				Name:  "managed",
 				Usage: "start `crush server` as a child process and stop it on exit (no separate server needed)",
 			},
+			&cli.BoolFlag{
+				Name:  "shared",
+				Usage: "use Crush's per-user shared server, the one `CRUSH_CLIENT_SERVER=1 crush` uses, starting it if needed; it outlives the bridge",
+			},
+			&cli.StringFlag{
+				Name:    "crush-socket",
+				Usage:   "Unix socket of the --shared server (default: Crush's own)",
+				Sources: cli.EnvVars("CRUSH_ACP_CRUSH_SOCKET"),
+			},
 			&cli.StringFlag{
 				Name:    "crush-bin",
-				Usage:   "crush executable for --managed",
+				Usage:   "crush executable for --managed and --shared",
 				Value:   "crush",
 				Sources: cli.EnvVars("CRUSH_ACP_CRUSH_BIN"),
 			},
@@ -96,10 +106,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			if cmd.Bool("managed") && flagGiven(args, "crush-url") {
 				return cli.Exit("--managed starts its own server; remove --crush-url", exitUsage)
 			}
+			if cmd.Bool("shared") && (cmd.Bool("managed") || flagGiven(args, "crush-url")) {
+				return cli.Exit("--shared uses Crush's shared server; remove --managed and --crush-url", exitUsage)
+			}
 			return serve(ctx, logger, serveOptions{
 				crushURL: cmd.String("crush-url"),
 				forceCwd: cmd.String("cwd"),
 				managed:  cmd.Bool("managed"),
+				shared:   cmd.Bool("shared"),
+				socket:   cmd.String("crush-socket"),
 				crushBin: cmd.String("crush-bin"),
 				listen:   cmd.String("listen"),
 			}, stdin, stdout)
@@ -140,6 +155,8 @@ type serveOptions struct {
 	crushURL string
 	forceCwd string // open this directory for every session when set
 	managed  bool   // run `crush server` as a child instead of connecting
+	shared   bool   // use, or start, Crush's per-user shared server
+	socket   string // the shared server's socket when not Crush's default
 	crushBin string
 	listen   string
 }
@@ -161,6 +178,17 @@ func serve(ctx context.Context, log *slog.Logger, opts serveOptions, stdin io.Re
 		defer func() { _ = srv.Stop() }()
 		crushURL = srv.URL()
 	}
+	if opts.shared {
+		socket := cmp.Or(opts.socket, crushserver.DefaultSocket())
+		if err := crushserver.EnsureShared(ctx, crushserver.SharedOptions{
+			Binary: opts.crushBin,
+			Socket: socket,
+			Logger: log,
+		}); err != nil {
+			return fmt.Errorf("shared crush server: %w", err)
+		}
+		crushURL = "unix://" + socket
+	}
 
 	client := crush.New(crushURL)
 	if err := client.Ping(ctx); err != nil {
@@ -173,7 +201,8 @@ func serve(ctx context.Context, log *slog.Logger, opts serveOptions, stdin io.Re
 		}
 		return client.OpenWorkspace(ctx, cwd)
 	}
-	log.Info("serving ACP on stdio", "crush_url", crushURL, "managed", opts.managed, "force_cwd", opts.forceCwd)
+	log.Info("serving ACP on stdio",
+		"crush_url", crushURL, "managed", opts.managed, "shared", opts.shared, "force_cwd", opts.forceCwd)
 	if err := bridge.Serve(ctx, open, stdin, stdout, bridge.WithLogger(log)); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -22,9 +24,19 @@ type Client struct {
 	http *http.Client
 }
 
-// New returns a Client for the server at baseURL, for example
-// "http://127.0.0.1:8484".
+// New returns a Client for the server at baseURL: an HTTP URL such as
+// "http://127.0.0.1:8484", or "unix:///path/to/crush.sock" for a server on a
+// Unix socket, as Crush's default shared server is.
 func New(baseURL string) *Client {
+	if sock, ok := strings.CutPrefix(baseURL, "unix://"); ok {
+		var d net.Dialer
+		transport := &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return d.DialContext(ctx, "unix", sock)
+			},
+		}
+		return &Client{base: "http://crush/v1", http: &http.Client{Transport: transport}}
+	}
 	return &Client{base: strings.TrimRight(baseURL, "/") + "/v1", http: &http.Client{}}
 }
 
@@ -48,7 +60,13 @@ func (c *Client) OpenWorkspace(ctx context.Context, path string) (*Workspace, er
 	var out struct {
 		ID string `json:"id"`
 	}
-	body := map[string]string{"path": path, "client_id": clientID}
+	// Crush clients send their environment: the server resolves provider
+	// credentials from it, and may have been started by another client.
+	body := struct {
+		Path     string   `json:"path"`
+		ClientID string   `json:"client_id"`
+		Env      []string `json:"env"`
+	}{path, clientID, os.Environ()}
 	if err := c.do(ctx, http.MethodPost, "/workspaces", body, &out); err != nil {
 		return nil, fmt.Errorf("open workspace: %w", err)
 	}
