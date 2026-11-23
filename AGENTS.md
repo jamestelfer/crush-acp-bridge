@@ -21,9 +21,11 @@ just snapshots # regenerate go-snaps golden files for review
 just fmt       # gofmt -w .
 just lint      # golangci-lint run ./...
 just xbuild    # goreleaser snapshot build across the full release matrix
+just live      # drive the built binary against a running crush server (CRUSH_ACP_URL, LIVE_CWD)
+just acpx "…"  # send one prompt through the built binary with acpx
 ```
 
-Tool versions (Go, golangci-lint, goreleaser, just) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
+Tool versions (Go, golangci-lint, goreleaser, just, Crush, gcloud, Node) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
 
 ## Unit tests
 
