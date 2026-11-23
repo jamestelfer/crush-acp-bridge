@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -99,6 +100,7 @@ type fakeCrush struct {
 	agents    []string
 	agentErr  error
 	currents  []string
+	down      atomic.Bool
 }
 
 func (f *fakeCrush) SetMainAgent(_ context.Context, id string) error {
@@ -151,7 +153,10 @@ func (f *fakeCrush) SetCurrentSession(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeCrush) Events(context.Context) (<-chan []byte, error) { return f.current(), nil }
+func (f *fakeCrush) Events(context.Context) (<-chan []byte, error) {
+	f.down.Store(false)
+	return f.current(), nil
+}
 
 func (f *fakeCrush) current() chan []byte {
 	f.mu.Lock()
@@ -162,6 +167,7 @@ func (f *fakeCrush) current() chan []byte {
 // drop ends the current event stream, as a lost connection does. The next
 // Events call returns a fresh stream.
 func (f *fakeCrush) drop() {
+	f.down.Store(true) // like a dead server, refuse work until resubscribed
 	f.mu.Lock()
 	old := f.events
 	f.events = make(chan []byte, 1024)
@@ -176,6 +182,9 @@ func (f *fakeCrush) currentSessions() []string {
 }
 
 func (f *fakeCrush) Prompt(_ context.Context, _ string, text string) error {
+	if f.down.Load() {
+		return errors.New("dial unix crush.sock: connect: connection refused")
+	}
 	f.mu.Lock()
 	f.prompts = append(f.prompts, text)
 	events := f.events

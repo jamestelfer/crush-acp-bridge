@@ -54,6 +54,7 @@ func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts .
 	a := &Agent{
 		open:       open,
 		workspaces: map[string]Backend{},
+		reconnects: map[string]chan struct{}{},
 		modes:      map[string]acp.SessionModeId{},
 		sessions:   map[string]*session{},
 		serveCtx:   ctx,
@@ -84,6 +85,7 @@ type Agent struct {
 
 	mu         sync.Mutex
 	workspaces map[string]Backend           // by directory
+	reconnects map[string]chan struct{}     // closed when a directory reconnects
 	modes      map[string]acp.SessionModeId // Crush's active agent, by directory
 	sessions   map[string]*session
 }
@@ -189,6 +191,9 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	s := a.session(string(req.SessionId))
 	if s == nil {
 		return acp.PromptResponse{}, fmt.Errorf("unknown session %q", req.SessionId)
+	}
+	if err := a.awaitConnected(ctx, s.cwd); err != nil {
+		return acp.PromptResponse{}, err
 	}
 
 	s.active.Store(true)
@@ -303,6 +308,9 @@ func (a *Agent) follow(events <-chan []byte, cwd string) {
 			return
 		}
 		a.log.Warn("crush event stream closed", "cwd", cwd)
+		a.mu.Lock()
+		a.reconnects[cwd] = make(chan struct{})
+		a.mu.Unlock()
 		a.failTurns(cwd)
 		if events = a.reconnect(cwd); events == nil {
 			return
@@ -333,6 +341,28 @@ func (a *Agent) sessionsIn(cwd string) map[string]*session {
 		}
 	}
 	return out
+}
+
+// reconnectWait bounds how long a prompt waits for its directory to reconnect.
+const reconnectWait = 30 * time.Second
+
+// awaitConnected waits while cwd is reconnecting, so a prompt sent just after
+// a lost connection reaches the new server instead of the dead one.
+func (a *Agent) awaitConnected(ctx context.Context, cwd string) error {
+	a.mu.Lock()
+	done, ok := a.reconnects[cwd]
+	a.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(reconnectWait):
+		return acp.NewRequestError(-32603, "crush is unreachable; the bridge is still reconnecting", nil)
+	}
 }
 
 // Reconnect backoff: the first retry is quick, as a dropped stream is the
@@ -367,6 +397,10 @@ func (a *Agent) reconnect(cwd string) <-chan []byte {
 
 		a.mu.Lock()
 		a.workspaces[cwd] = b
+		if done, ok := a.reconnects[cwd]; ok {
+			defer close(done) // after the sessions below have the new backend
+			delete(a.reconnects, cwd)
+		}
 		a.mu.Unlock()
 		for id, s := range a.sessionsIn(cwd) {
 			s.setBackend(b)

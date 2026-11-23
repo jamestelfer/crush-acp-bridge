@@ -106,3 +106,30 @@ func TestServerGoneForGoodEndsTheTurnAndIsLogged(t *testing.T) {
 	require.Equal(t, "/work/proj", rec["cwd"])
 	require.Contains(t, rec["error"], "no such file")
 }
+
+func TestPromptDuringAReconnectWaitsForIt(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	turn := tr.firstTurn(t, "end_turn")
+	backend := newFakeCrush(tr.sessionID(t), turn[:midText])
+	var opens atomic.Int32
+	open := func(context.Context, string) (bridge.Backend, error) {
+		if opens.Add(1) > 1 {
+			time.Sleep(time.Second) // a shared server restarting
+		}
+		return backend, nil
+	}
+	ed := &editor{}
+	conn := connectWith(t, open, ed)
+	sid := start(t, conn)
+
+	done := promptAsync(t, conn, sid, "explain TCP")
+	require.Eventually(t, func() bool { return agentText(ed) != "" }, 2*time.Second, 10*time.Millisecond)
+	backend.drop()
+	require.ErrorContains(t, <-done, "lost")
+
+	backend.script = turn[midText:]
+	resp := prompt(t, conn, sid, "go on")
+
+	require.Equal(t, acp.StopReasonEndTurn, resp.StopReason, "the prompt waited for the reconnect instead of failing")
+	require.Equal(t, int32(2), opens.Load())
+}
