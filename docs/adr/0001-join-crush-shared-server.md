@@ -26,5 +26,5 @@ Crush already has a per-user shared server. A TUI run with `CRUSH_CLIENT_SERVER=
 - Any number of bridges and Crush TUIs share one server, so several agents work in one directory.
 - The bridge depends on Crush's socket rule. A change in Crush needs a matching change in `DefaultSocket`.
 - A server's lifetime is no longer tied to a bridge. Its log lives in the user cache directory.
-- Crush uses a named pipe on Windows, so `DefaultSocket` returns no path there and `--shared` fails with `ErrSharedUnsupported`. Windows is covered by `--managed` until named-pipe support lands separately.
+- On Windows Crush listens on a named pipe, `//./pipe/crush-<sid>.sock`, keyed by the user's SID. `DefaultSocket` returns that pipe and the client dials it with go-winio, checking that the server runs as the current user, as Crush's client does. A second server fails to bind the pipe and exits, so no lock is needed there either. `--shared` fails with `ErrSharedUnsupported` only when the SID cannot be read. Windows behaviour is cross-compiled and tested in CI, not verified on a Windows machine.
 - The bridge sends its environment to the shared server; see [ADR 2](0002-environment-only-to-local-servers.md).

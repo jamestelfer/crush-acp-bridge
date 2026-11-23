@@ -67,7 +67,7 @@ Clients send their environment in `env` when opening a workspace. The server res
 ## Shared server and data-directory lock
 
 - Only servers take the data-directory lock (`db.WithDataDirLock`). One server per project data directory (`.crush/`) can run.
-- The per-user shared server listens on `crush-<uid>.sock` in `$XDG_RUNTIME_DIR`, else the temporary directory, else `/tmp` when the path exceeds 104 bytes (`internal/server.DefaultHost`). On Windows it uses a named pipe.
+- The per-user shared server listens on `crush-<uid>.sock` in `$XDG_RUNTIME_DIR`, else the temporary directory, else `/tmp` when the path exceeds 104 bytes (`internal/server.DefaultHost`). On Windows it uses the named pipe `npipe:////./pipe/crush-<sid>.sock`, keyed by the user's SID, bound with an owner-and-SYSTEM-only security descriptor. Crush's client checks that the pipe's server runs as the current user before dialling.
 - A server that finds a live one on its socket exits with "address already in use". Crush's `<socket>.lock` guards simultaneous binds and stale-socket removal.
 - `crush` with `CRUSH_CLIENT_SERVER=1` connects to the shared server, or to the server named by `--host`.
 - A plain `crush` without `CRUSH_CLIENT_SERVER=1` ignores `--host` and runs its own agent in-process. It takes no lock, so it runs alongside a server and writes the same SQLite file. It sees no live events from the server: the two do not see each other's turns until a restart.
