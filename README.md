@@ -195,10 +195,10 @@ Supported:
 - User messages typed in other Crush clients, shown in the editor as they arrive.
 - Model selection (`session/set_config_option`) and the `coder` and `plan` modes (`session/set_mode`).
 - Reconnecting after the event stream drops.
+- `session/load`, `session/resume` and `session/list`. Loading replays the stored conversation: user messages, reasoning, tool calls and replies. The list covers one directory's conversations, newest first, and leaves out sub-agent and empty sessions. Without a `cwd`, it covers only the directories the bridge already has open.
 
 Not supported:
 
-- `session/load`, `session/list` and `session/resume`. Reopening a session starts blank.
 - Editor file system and terminal delegation. The agent reads files from disk, so unsaved buffers are invisible.
 - Diffs for file edits. Edit calls show a title and location only.
 - Crush question prompts.

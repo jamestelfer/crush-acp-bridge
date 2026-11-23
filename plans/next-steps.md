@@ -75,13 +75,18 @@ Notes:
 
 ### 3. `session/list`, `session/load` and `session/resume`
 
-- [ ] A snapshot test asserts that loading a recorded session replays the same updates a live run produced.
-- [ ] `session/list` returns the workspace's Crush sessions, covered by a test.
-- [ ] Capabilities are advertised only for methods that work.
-- [ ] Paseo resumes an archived agent and shows its history (live).
-- [ ] `just verify` passes.
+- [x] A snapshot test asserts that loading a recorded session replays the same updates a live run produced (`TestLoadReplaysWhatTheLiveRunShowed`: equal after merging streamed chunks, plus the editor's own prompt).
+- [x] `session/list` returns the workspace's Crush sessions, covered by a test.
+- [x] Capabilities are advertised only for methods that work: `loadSession`, `sessionCapabilities.list` and `.resume`; not `close`.
+- [x] Paseo resumes an archived agent and shows its history (live): an archived agent answered a follow-up from the earlier turn's context in the same Crush session; `paseo import` of a stored session showed its conversation.
+- [x] `just verify` passes.
 
-Note: Paseo already marks Crush agents as supporting session persistence and listing; today those calls return method-not-found.
+Notes:
+
+- Paseo calls `session/load` when `loadSession` is advertised, and uses `session/resume` only otherwise.
+- Every Paseo probe leaves an empty `ACP` session in Crush. The list hides sessions with no messages.
+- `session/list` without a `cwd` covers only directories the bridge already has open, so it opens no new Crush workspace.
+- A load while another client runs a turn in that session may show that turn's text twice: once from the replay, once from the live stream.
 
 ### 4. Diffs for edit tools
 
@@ -107,3 +112,4 @@ Note: Paseo already marks Crush agents as supporting session persistence and lis
 - 2026-11-24: Chose to join Crush's shared server. Merged reconnect and isolation into slice 2, ahead of slice 3. Slice 2 started.
 - 2026-11-24: `--shared` done (`69693ba`), verified live with two concurrent bridges and a `CRUSH_CLIENT_SERVER=1` client. Next: reconnect, Paseo provider, README.
 - 2026-11-24: Reconnect done (`d2ee79d`, `2e6161f`), Paseo switched to `--shared`, README updated. Slice 2 complete. Next: slice 3.
+- 2026-11-24: Slice 3 done (`433eb23`), verified live through Paseo resume, `paseo import` and a direct `session/list`. Next: slice 4.
