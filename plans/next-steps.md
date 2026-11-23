@@ -127,3 +127,4 @@ Notes:
 - 2026-11-24: Slice 3 done (`433eb23`), verified live through Paseo resume, `paseo import` and a direct `session/list`. Next: slice 4.
 - 2026-11-24: Review fixes applied (`ff12325`..`2073fbd`).
 - 2026-11-24: Slice 4 done (`18e8ccf`), verified live with a Paseo Crush agent: the pending edit permission carried the whole-file diff. Next: slice 5.
+- 2026-11-24: Slice 5 done (`871d797`), verified with a traced Paseo session: no method-not-found in either direction, and every unimplemented method Paseo can call is gated on a capability or field the bridge does not send.
