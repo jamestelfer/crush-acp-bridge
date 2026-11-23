@@ -3,6 +3,7 @@ package bridge_test
 import (
 	"context"
 	"encoding/json/v2"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/jamestelfer/crush-acp-bridge/internal/bridge"
 	"github.com/jamestelfer/crush-acp-bridge/internal/crush"
+	"github.com/jamestelfer/crush-acp-bridge/internal/translate"
 )
 
 const bashPrompt = "Run the shell command 'echo hello > out.txt' and then say done."
@@ -87,7 +89,11 @@ func TestLoadReplaysWhatTheLiveRunShowed(t *testing.T) {
 func TestLoadedSessionTakesPrompts(t *testing.T) {
 	tr := loadTrace(t, "long-text-cancel.sse")
 	sid := tr.sessionID(t)
-	backend := newFakeCrush(sid, tr.firstTurn(t, "end_turn"))
+	turn := tr.firstTurn(t, "end_turn")
+	backend := newFakeCrush(sid, turn)
+	// Crush gives a new turn new message IDs, but the fake's prompt replays the
+	// script's, so the stored history holds no messages: only the session event.
+	backend.history = turn[:1]
 	backend.stored = []crush.Session{{ID: sid, MessageCount: 2}}
 	conn := connect(t, backend, &editor{})
 	initialize(t, conn)
@@ -189,4 +195,44 @@ func TestInitializeAdvertisesSessionLoadListAndResume(t *testing.T) {
 	assert.NotNil(t, caps.SessionCapabilities.List)
 	assert.NotNil(t, caps.SessionCapabilities.Resume)
 	assert.Nil(t, caps.SessionCapabilities.Close, "session/close is not implemented")
+}
+
+// replyText is the assistant text a fresh translator finds in events.
+func replyText(t *testing.T, events trace) string {
+	t.Helper()
+	tr := translate.New()
+	var b strings.Builder
+	for _, data := range events {
+		updates, err := tr.Feed(data)
+		require.NoError(t, err)
+		for _, u := range updates {
+			if u.Kind == translate.MessageChunk {
+				b.WriteString(u.Text)
+			}
+		}
+	}
+	return b.String()
+}
+
+func TestLoadDuringATurnShowsItsTextOnce(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	sid := tr.sessionID(t)
+	turn := tr.firstTurn(t, "end_turn")
+	backend := newFakeCrush(sid, turn[:midText]) // stored so far: a partial reply
+	backend.stored = []crush.Session{{ID: sid, MessageCount: 2}}
+	ed := &editor{}
+	conn := connect(t, backend, ed)
+	initialize(t, conn)
+
+	_, err := load(t, conn, acp.SessionId(sid))
+	require.NoError(t, err)
+	require.NotEmpty(t, agentText(ed), "the replay showed the partial reply")
+	for _, data := range turn[midText:] { // the turn goes on in another client
+		backend.current() <- data
+	}
+
+	want := replyText(t, turn)
+	require.Eventually(t, func() bool { return len(agentText(ed)) >= len(want) }, 2*time.Second, 10*time.Millisecond)
+	time.Sleep(50 * time.Millisecond) // any duplicate would follow promptly
+	assert.Equal(t, want, agentText(ed))
 }

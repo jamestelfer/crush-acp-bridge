@@ -101,6 +101,7 @@ type fakeCrush struct {
 	agentErr  error
 	currents  []string
 	stored    []crush.Session // returned by Sessions
+	history   trace           // the stored messages' source when set; else script
 	down      atomic.Bool
 }
 
@@ -110,12 +111,17 @@ func (f *fakeCrush) Sessions(context.Context) ([]crush.Session, error) {
 	return append([]crush.Session(nil), f.stored...), nil
 }
 
-// Messages returns what Crush would store for the script: the last snapshot
-// of each message, in the order the messages first appeared.
+// Messages returns what Crush would store for the history, or else the
+// script: the last snapshot of each message, in the order the messages first
+// appeared.
 func (f *fakeCrush) Messages(_ context.Context, sessionID string) ([]jsontext.Value, error) {
 	var order []string
 	last := map[string]jsontext.Value{}
-	for _, data := range f.script {
+	source := f.script
+	if f.history != nil {
+		source = f.history
+	}
+	for _, data := range source {
 		var ev struct {
 			Type    string `json:"type"`
 			Payload struct {

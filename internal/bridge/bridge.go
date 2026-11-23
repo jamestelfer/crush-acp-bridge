@@ -97,6 +97,12 @@ type workspace struct {
 	ready chan struct{} // closed when the first open finishes
 	err   error         // why the first open failed; set before ready closes
 	be    Backend       // nil until open; replaced on reconnect; guarded by Agent.mu
+
+	// tr records what the editor has been sent for the directory's messages,
+	// across reconnects and session loads. trMu is held while an update is
+	// translated and forwarded, so the editor sees them in order.
+	trMu sync.Mutex
+	tr   *translate.Translator
 }
 
 // session tracks one in-flight turn.
@@ -319,7 +325,7 @@ func (a *Agent) workspace(ctx context.Context, cwd string) (Backend, error) {
 	a.mu.Lock()
 	w, ok := a.workspaces[cwd]
 	if !ok {
-		w = &workspace{ready: make(chan struct{})}
+		w = &workspace{ready: make(chan struct{}), tr: translate.New()}
 		a.workspaces[cwd] = w
 	}
 	a.mu.Unlock()
@@ -352,7 +358,7 @@ func (a *Agent) openWorkspace(ctx context.Context, cwd string, w *workspace) {
 	}
 	w.be = b
 	a.log.Info("workspace opened", "cwd", cwd)
-	go a.follow(events, cwd)
+	go a.follow(events, cwd, w)
 }
 
 // connect opens cwd, restores the mode the bridge set there, and subscribes
@@ -380,20 +386,20 @@ func (a *Agent) connect(ctx context.Context, cwd string) (Backend, <-chan []byte
 
 // follow translates Crush events and forwards them in order to the editor.
 // When the stream ends it fails the directory's turns in flight and
-// reconnects. One translator spans reconnects, so text the editor already has
-// is not sent again when Crush resends a message.
-func (a *Agent) follow(events <-chan []byte, cwd string) {
-	tr := translate.New()
+// reconnects. The directory's translator spans reconnects, so text the editor
+// already has is not sent again when Crush resends a message.
+func (a *Agent) follow(events <-chan []byte, cwd string, w *workspace) {
 	for {
 		for data := range events {
-			updates, err := tr.Feed(data)
+			w.trMu.Lock()
+			updates, err := w.tr.Feed(data)
 			if err != nil {
 				a.log.Warn("crush event not translated", "error", err)
-				continue
 			}
 			for i := range updates {
 				a.forward(&updates[i])
 			}
+			w.trMu.Unlock()
 		}
 		if a.serveCtx.Err() != nil {
 			a.log.Debug("crush event stream ended at shutdown", "cwd", cwd)

@@ -30,21 +30,36 @@ func (a *Agent) LoadSession(ctx context.Context, req acp.LoadSessionRequest) (ac
 		return acp.LoadSessionResponse{}, err
 	}
 
-	// A fresh translator: the replay must not mark messages as sent for the
-	// live stream, which never sees them again.
-	tr := translate.New()
+	a.replay(req.Cwd, sid, messages)
+	a.log.Info("session loaded", "session_id", sid, "cwd", req.Cwd, "messages", len(messages))
+	return acp.LoadSessionResponse{ConfigOptions: reopened.config, Modes: reopened.modes}, nil
+}
+
+// replay sends a stored session's messages to the editor in full. The
+// directory's live translator also records them, so when a turn still in
+// progress sends a later snapshot of a replayed message, the editor receives
+// only the new part. The live stream waits while the replay runs.
+func (a *Agent) replay(cwd, sid string, messages []jsontext.Value) {
+	a.mu.Lock()
+	w := a.workspaces[cwd]
+	a.mu.Unlock()
+	w.trMu.Lock()
+	defer w.trMu.Unlock()
+
+	// A fresh translator emits everything, even messages this bridge has
+	// already shown in another load or a live run.
+	full := translate.New()
 	for _, raw := range messages {
-		updates, err := tr.FeedMessage(raw)
+		updates, err := full.FeedMessage(raw)
 		if err != nil {
 			a.log.Warn("stored message not translated", "session_id", sid, "error", err)
 			continue
 		}
+		_, _ = w.tr.FeedMessage(raw) // the editor has this content now
 		for i := range updates {
 			a.forward(&updates[i])
 		}
 	}
-	a.log.Info("session loaded", "session_id", sid, "cwd", req.Cwd, "messages", len(messages))
-	return acp.LoadSessionResponse{ConfigOptions: reopened.config, Modes: reopened.modes}, nil
 }
 
 // ResumeSession attaches to a stored Crush session without replaying it.

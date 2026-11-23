@@ -86,7 +86,6 @@ Notes:
 - Paseo calls `session/load` when `loadSession` is advertised, and uses `session/resume` only otherwise.
 - Every Paseo probe leaves an empty `ACP` session in Crush. The list hides sessions with no messages.
 - `session/list` without a `cwd` covers only directories the bridge already has open, so it opens no new Crush workspace.
-- A load while another client runs a turn in that session may show that turn's text twice: once from the replay, once from the live stream.
 
 ### 4. Diffs for edit tools
 
