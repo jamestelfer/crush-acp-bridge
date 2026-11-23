@@ -1,0 +1,73 @@
+
+[TestListShowsConversationsNewestFirst - 1]
+[
+ {
+  "cwd": "/work/proj",
+  "sessionId": "new",
+  "title": "New work",
+  "updatedAt": "2026-11-23T12:27:43Z"
+ },
+ {
+  "cwd": "/work/proj",
+  "sessionId": "old",
+  "title": "Old work",
+  "updatedAt": "2026-11-23T02:13:20Z"
+ }
+]
+---
+
+[TestLoadReplaysWhatTheLiveRunShowed - 1]
+[
+ {
+  "content": {
+   "text": "Run the shell command 'echo hello > out.txt' and then say done.",
+   "type": "text"
+  },
+  "sessionUpdate": "user_message_chunk"
+ },
+ {
+  "content": {
+   "text": "**Executing Shell Command**\n\nI've initiated the process to execute the `echo hello > out.txt` command. The operation is underway.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "kind": "execute",
+  "sessionUpdate": "tool_call",
+  "status": "in_progress",
+  "title": "bash",
+  "toolCallId": "call_878649355015837418"
+ },
+ {
+  "rawInput": {
+   "command": "echo hello > out.txt",
+   "description": "Write hello to out.txt"
+  },
+  "sessionUpdate": "tool_call_update",
+  "title": "Write hello to out.txt",
+  "toolCallId": "call_878649355015837418"
+ },
+ {
+  "content": [
+   {
+    "content": {
+     "text": "no output",
+     "type": "text"
+    },
+    "type": "content"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "status": "completed",
+  "toolCallId": "call_878649355015837418"
+ },
+ {
+  "content": {
+   "text": "done",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ }
+]
+---

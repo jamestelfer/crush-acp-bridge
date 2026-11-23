@@ -93,8 +93,11 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode == http.StatusConflict {
+	switch resp.StatusCode {
+	case http.StatusConflict:
 		return fmt.Errorf("%s %s: %w", method, path, ErrBusy)
+	case http.StatusNotFound:
+		return fmt.Errorf("%s %s: %w", method, path, ErrNotFound)
 	}
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("%s %s: %s", method, path, resp.Status)
@@ -142,6 +145,10 @@ func (w *Workspace) path(suffix string) string { return "/workspaces/" + w.id + 
 
 // ErrBusy is returned by Prompt when the session is already running a turn.
 var ErrBusy = errors.New("session is busy")
+
+// ErrNotFound is returned when the server has no such workspace, session or
+// resource.
+var ErrNotFound = errors.New("not found")
 
 // Prompt starts an agent turn in the session. The run continues on the server
 // after Prompt returns; follow it through Events.

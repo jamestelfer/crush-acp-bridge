@@ -137,6 +137,12 @@ func (t *Translator) Feed(data []byte) ([]Update, error) {
 	}
 }
 
+// FeedMessage consumes one stored message, as the server's message list
+// returns it, and returns any updates. It replays a session's history.
+func (t *Translator) FeedMessage(raw jsontext.Value) ([]Update, error) {
+	return t.message(raw)
+}
+
 func (t *Translator) message(raw jsontext.Value) ([]Update, error) {
 	var msg message
 	if err := json.Unmarshal(raw, &msg); err != nil {

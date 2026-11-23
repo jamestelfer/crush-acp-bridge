@@ -31,6 +31,8 @@ type Backend interface {
 	Models(ctx context.Context) (crush.Models, error)
 	SetModel(ctx context.Context, m crush.ModelRef) error
 	SetMainAgent(ctx context.Context, agentID string) error
+	Sessions(ctx context.Context) ([]crush.Session, error)
+	Messages(ctx context.Context, sessionID string) ([]jsontext.Value, error)
 }
 
 var _ Backend = (*crush.Workspace)(nil)
@@ -157,6 +159,13 @@ func (a *Agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentInfo:       &acp.Implementation{Name: "crush-acp-bridge", Version: "0.0.0"},
+		AgentCapabilities: acp.AgentCapabilities{
+			LoadSession: true,
+			SessionCapabilities: acp.SessionCapabilities{
+				List:   &acp.SessionListCapabilities{},
+				Resume: &acp.SessionResumeCapabilities{},
+			},
+		},
 	}, nil
 }
 
@@ -170,20 +179,30 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
-	if err := backend.SetCurrentSession(ctx, id); err != nil {
+	modes, err := a.attach(ctx, backend, id, req.Cwd)
+	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
-
-	a.mu.Lock()
-	a.sessions[id] = &session{be: backend, cwd: req.Cwd, turn: make(chan turnEnd, 1)}
-	modes := modeState(a.modeLocked(req.Cwd))
-	a.mu.Unlock()
 	a.log.Info("session created", "session_id", id, "cwd", req.Cwd)
 	return acp.NewSessionResponse{
 		SessionId:     acp.SessionId(id),
 		ConfigOptions: a.sessionConfig(ctx, backend, id),
 		Modes:         modes,
 	}, nil
+}
+
+// attach reports the session to Crush as the one this client views, and
+// starts tracking it. It returns the directory's mode state.
+func (a *Agent) attach(ctx context.Context, backend Backend, id, cwd string) (*acp.SessionModeState, error) {
+	if err := backend.SetCurrentSession(ctx, id); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, ok := a.sessions[id]; !ok {
+		a.sessions[id] = &session{be: backend, cwd: cwd, turn: make(chan turnEnd, 1)}
+	}
+	return modeState(a.modeLocked(cwd)), nil
 }
 
 // Prompt runs one turn and returns when Crush reports it finished.

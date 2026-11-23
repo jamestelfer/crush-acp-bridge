@@ -100,7 +100,48 @@ type fakeCrush struct {
 	agents    []string
 	agentErr  error
 	currents  []string
+	stored    []crush.Session // returned by Sessions
 	down      atomic.Bool
+}
+
+func (f *fakeCrush) Sessions(context.Context) ([]crush.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]crush.Session(nil), f.stored...), nil
+}
+
+// Messages returns what Crush would store for the script: the last snapshot
+// of each message, in the order the messages first appeared.
+func (f *fakeCrush) Messages(_ context.Context, sessionID string) ([]jsontext.Value, error) {
+	var order []string
+	last := map[string]jsontext.Value{}
+	for _, data := range f.script {
+		var ev struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Payload jsontext.Value `json:"payload"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal(data, &ev); err != nil || ev.Type != "message" {
+			continue
+		}
+		var msg struct {
+			ID        string `json:"id"`
+			SessionID string `json:"session_id"`
+		}
+		if err := json.Unmarshal(ev.Payload.Payload, &msg); err != nil || msg.SessionID != sessionID {
+			continue
+		}
+		if _, seen := last[msg.ID]; !seen {
+			order = append(order, msg.ID)
+		}
+		last[msg.ID] = ev.Payload.Payload
+	}
+	out := make([]jsontext.Value, 0, len(order))
+	for _, id := range order {
+		out = append(out, last[id])
+	}
+	return out, nil
 }
 
 func (f *fakeCrush) SetMainAgent(_ context.Context, id string) error {

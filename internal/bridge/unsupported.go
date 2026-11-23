@@ -25,11 +25,3 @@ func (unsupported) CloseSession(context.Context, acp.CloseSessionRequest) (acp.C
 func (unsupported) DeleteSession(context.Context, acp.DeleteSessionRequest) (acp.DeleteSessionResponse, error) {
 	return acp.DeleteSessionResponse{}, acp.NewMethodNotFound("session/delete")
 }
-
-func (unsupported) ListSessions(context.Context, acp.ListSessionsRequest) (acp.ListSessionsResponse, error) {
-	return acp.ListSessionsResponse{}, acp.NewMethodNotFound("session/list")
-}
-
-func (unsupported) ResumeSession(context.Context, acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
-	return acp.ResumeSessionResponse{}, acp.NewMethodNotFound("session/resume")
-}
