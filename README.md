@@ -214,7 +214,13 @@ Not supported:
 ## Development
 
 Run `mise install` for the pinned toolchain, then `just verify` before committing.
-See `AGENTS.md` for conventions.
+See `AGENTS.md` for conventions, and `docs/` for design and reference:
+
+- [Architecture](docs/architecture.md)
+- [Architecture decision records](docs/adr/README.md)
+- [Crush server reference](docs/crush-server.md)
+- [Paseo](docs/paseo.md)
+- [Testing](docs/testing.md)
 
 Tests replay SSE traces recorded from Crush 0.102.0 (`testdata/*.sse`) through the translator and the
 bridge, with go-snaps snapshots of the output. `just live` drives the built binary against a running

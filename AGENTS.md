@@ -23,6 +23,7 @@ just lint      # golangci-lint run ./...
 just xbuild    # goreleaser snapshot build across the full release matrix
 just live      # drive the built binary against a running crush server (CRUSH_ACP_URL, LIVE_CWD)
 just acpx "…"  # send one prompt through the built binary with acpx
+just record-trace name action "prompt"…  # record a Crush SSE trace into testdata/ (docs/testing.md)
 ```
 
 Tool versions (Go, golangci-lint, goreleaser, just, Crush, gcloud, Node) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
