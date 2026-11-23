@@ -33,6 +33,25 @@ const (
 	TurnEnded
 )
 
+var kindNames = map[Kind]string{
+	MessageChunk:        "message_chunk",
+	ThoughtChunk:        "thought_chunk",
+	UserChunk:           "user_chunk",
+	ToolCallStarted:     "tool_call_started",
+	ToolCallInput:       "tool_call_input",
+	ToolCallFinished:    "tool_call_finished",
+	PermissionRequested: "permission_requested",
+	TurnEnded:           "turn_ended",
+}
+
+// String returns the kind's name, for logs and snapshots.
+func (k Kind) String() string {
+	if name, ok := kindNames[k]; ok {
+		return name
+	}
+	return fmt.Sprintf("kind(%d)", int(k))
+}
+
 // Update is a single incremental change derived from a Crush event.
 type Update struct {
 	Kind      Kind
