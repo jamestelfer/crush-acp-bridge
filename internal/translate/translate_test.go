@@ -207,3 +207,24 @@ func TestUpdatesCarryTheirSessionID(t *testing.T) {
 		})
 	}
 }
+
+func TestUserMessagesAreEmittedOncePerMessage(t *testing.T) {
+	tr := translate.New()
+	var got []string
+	for _, data := range replay(t, "long-text-cancel.sse") {
+		updates, err := tr.Feed(data)
+		require.NoError(t, err)
+		for _, u := range updates {
+			if u.Kind == translate.UserChunk {
+				got = append(got, u.Text)
+			}
+		}
+	}
+
+	// The prompts sent while recording the trace, in order.
+	require.Equal(t, []string{
+		"Write a 300 word explanation of how TCP congestion control works. No tools.",
+		"Now write a 1500 word essay on the history of the internet. No tools.",
+		"Say ok.",
+	}, got)
+}

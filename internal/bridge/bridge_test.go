@@ -441,3 +441,43 @@ func TestEarlierTurnByAnotherClientDoesNotEndNextPrompt(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 }
+
+const tcpPrompt = "Write a 300 word explanation of how TCP congestion control works. No tools."
+
+func userChunks(ed *editor) []string {
+	var out []string
+	for _, u := range ed.snapshot() {
+		if u.UserMessageChunk != nil && u.UserMessageChunk.Content.Text != nil {
+			out = append(out, u.UserMessageChunk.Content.Text.Text)
+		}
+	}
+	return out
+}
+
+func TestUserMessageFromAnotherClientIsForwarded(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	backend := newFakeCrush(tr.sessionID(t), nil)
+	ed := &editor{}
+	conn := connect(t, backend, ed)
+	start(t, conn)
+
+	// The TUI user types a prompt; the editor sent nothing.
+	for _, data := range tr.firstTurn(t, "end_turn") {
+		backend.events <- data
+	}
+
+	require.Eventually(t, func() bool { return len(userChunks(ed)) > 0 }, 2*time.Second, 10*time.Millisecond)
+	require.Equal(t, []string{tcpPrompt}, userChunks(ed))
+}
+
+func TestEditorsOwnPromptIsNotEchoedBack(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	backend := newFakeCrush(tr.sessionID(t), tr.firstTurn(t, "end_turn"))
+	ed := &editor{}
+	conn := connect(t, backend, ed)
+	sid := start(t, conn)
+
+	prompt(t, conn, sid, tcpPrompt)
+
+	require.Empty(t, userChunks(ed), "the editor already shows what the user typed")
+}

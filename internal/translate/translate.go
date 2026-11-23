@@ -18,6 +18,8 @@ const (
 	MessageChunk Kind = iota + 1
 	// ThoughtChunk is new assistant reasoning.
 	ThoughtChunk
+	// UserChunk is a user message, whoever sent it.
+	UserChunk
 	// ToolCallStarted is the first sighting of a tool call.
 	ToolCallStarted
 	// ToolCallFinished carries a tool call's result.
@@ -55,6 +57,7 @@ type Update struct {
 type Translator struct {
 	sentText    map[string]int
 	sentThought map[string]int
+	sentUser    map[string]int
 	startedTool map[string]bool
 	doneTool    map[string]bool
 	ended       map[string]bool
@@ -65,6 +68,7 @@ func New() *Translator {
 	return &Translator{
 		sentText:    map[string]int{},
 		sentThought: map[string]int{},
+		sentUser:    map[string]int{},
 		startedTool: map[string]bool{},
 		doneTool:    map[string]bool{},
 		ended:       map[string]bool{},
@@ -129,6 +133,20 @@ func (t *Translator) message(raw jsontext.Value) ([]Update, error) {
 
 func (t *Translator) part(msg message, p part) ([]Update, error) {
 	assistant := msg.Role == "assistant"
+
+	if p.Type == "text" && msg.Role == "user" {
+		var d struct {
+			Text   string `json:"text"`
+			Hidden bool   `json:"hidden"`
+		}
+		if err := json.Unmarshal(p.Data, &d); err != nil {
+			return nil, err
+		}
+		if d.Hidden {
+			return nil, nil
+		}
+		return delta(UserChunk, msg.ID, d.Text, t.sentUser), nil
+	}
 
 	switch p.Type {
 	case "tool_call":

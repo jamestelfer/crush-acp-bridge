@@ -66,6 +66,30 @@ type session struct {
 	// other clients (the Crush TUI) also end in this session; their ends must
 	// not complete a later prompt.
 	active atomic.Bool
+
+	// sent is the text of the prompt this editor just submitted. Crush echoes
+	// it back as a user message; the editor already shows it, so the echo is
+	// dropped. Other clients' user messages are forwarded.
+	sentMu sync.Mutex
+	sent   string
+}
+
+// takeSent reports whether text is the echo of the editor's own prompt, and
+// consumes the record if so.
+func (s *session) takeSent(text string) bool {
+	s.sentMu.Lock()
+	defer s.sentMu.Unlock()
+	if s.sent == "" || s.sent != text {
+		return false
+	}
+	s.sent = ""
+	return true
+}
+
+func (s *session) setSent(text string) {
+	s.sentMu.Lock()
+	defer s.sentMu.Unlock()
+	s.sent = text
 }
 
 var _ acp.Agent = (*Agent)(nil)
@@ -117,6 +141,8 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 			text.WriteString(b.Text.Text)
 		}
 	}
+	s.setSent(text.String())
+	defer s.setSent("")
 	if err := a.backend.Prompt(ctx, string(req.SessionId), text.String()); err != nil {
 		return acp.PromptResponse{}, err
 	}
@@ -187,6 +213,11 @@ func (a *Agent) forward(u *translate.Update) {
 	sid := acp.SessionId(u.SessionID)
 
 	switch u.Kind {
+	case translate.UserChunk:
+		if s.takeSent(u.Text) {
+			return
+		}
+		_ = a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateUserMessageText(u.Text)})
 	case translate.MessageChunk:
 		_ = a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateAgentMessageText(u.Text)})
 	case translate.ThoughtChunk:
