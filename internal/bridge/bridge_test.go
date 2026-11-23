@@ -2,12 +2,14 @@ package bridge_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,10 +88,11 @@ type fakeCrush struct {
 	onCancel  trace // replayed when the session is cancelled
 	events    chan []byte
 
-	mu      sync.Mutex
-	prompts []string
-	cancels []string
-	grants  []grant
+	mu       sync.Mutex
+	prompts  []string
+	cancels  []string
+	grants   []grant
+	grantErr error
 }
 
 type grant struct {
@@ -138,7 +141,7 @@ func (f *fakeCrush) Grant(_ context.Context, p jsontext.Value, a crush.Action) e
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.grants = append(f.grants, grant{p, a})
-	return nil
+	return f.grantErr
 }
 
 // editor is an in-memory ACP client that records what the agent sends.
@@ -200,14 +203,14 @@ func (*editor) CompleteElicitation(context.Context, acp.CompleteElicitationNotif
 }
 
 // connect serves the bridge with a single backend for every directory.
-func connect(t *testing.T, backend bridge.Backend, ed *editor) *acp.ClientSideConnection {
+func connect(t *testing.T, backend bridge.Backend, ed *editor, opts ...bridge.Option) *acp.ClientSideConnection {
 	t.Helper()
-	return connectWith(t, func(context.Context, string) (bridge.Backend, error) { return backend, nil }, ed)
+	return connectWith(t, func(context.Context, string) (bridge.Backend, error) { return backend, nil }, ed, opts...)
 }
 
 // connectWith serves the bridge over in-memory pipes and returns the editor's
 // view of the connection.
-func connectWith(t *testing.T, open bridge.Opener, ed *editor) *acp.ClientSideConnection {
+func connectWith(t *testing.T, open bridge.Opener, ed *editor, opts ...bridge.Option) *acp.ClientSideConnection {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -217,7 +220,7 @@ func connectWith(t *testing.T, open bridge.Opener, ed *editor) *acp.ClientSideCo
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = bridge.Serve(ctx, open, toAgentR, toEditorW)
+		_ = bridge.Serve(ctx, open, toAgentR, toEditorW, opts...)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -642,4 +645,137 @@ func TestSessionsInOneDirectoryShareAWorkspace(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, 1, opened, "one workspace and one event stream per directory")
+}
+
+// logCapture collects structured log output from the bridge.
+type logCapture struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (c *logCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Write(p)
+}
+
+func (c *logCapture) logger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(c, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
+// find returns the first record with the given message, or nil.
+func (c *logCapture) find(t *testing.T, msg string) map[string]any {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for line := range bytes.Lines(c.buf.Bytes()) {
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal(line, &rec))
+		if rec["msg"] == msg {
+			return rec
+		}
+	}
+	return nil
+}
+
+func (c *logCapture) await(t *testing.T, msg string) map[string]any {
+	t.Helper()
+	var rec map[string]any
+	require.Eventually(t, func() bool {
+		rec = c.find(t, msg)
+		return rec != nil
+	}, 2*time.Second, 10*time.Millisecond, "no log record %q", msg)
+	return rec
+}
+
+func TestMalformedCrushEventIsLoggedAndSkipped(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	backend := newFakeCrush(tr.sessionID(t), nil)
+	logs := &logCapture{}
+	ed := &editor{}
+	conn := connect(t, backend, ed, bridge.WithLogger(logs.logger()))
+	start(t, conn)
+
+	backend.events <- []byte(`{this is not json`)
+	for _, data := range tr.firstTurn(t, "end_turn") {
+		backend.events <- data
+	}
+
+	rec := logs.await(t, "crush event not translated")
+	require.Equal(t, "WARN", rec["level"])
+	require.NotEmpty(t, rec["error"])
+	require.Eventually(t, func() bool { return len(ed.snapshot()) > 0 }, 2*time.Second, 10*time.Millisecond,
+		"events after the bad one must still be delivered")
+}
+
+func TestFailedPermissionGrantIsLogged(t *testing.T) {
+	tr := loadTrace(t, "bash-permission.sse")
+	backend := newFakeCrush(tr.sessionID(t), tr)
+	backend.grantErr = errors.New("permission already resolved")
+	logs := &logCapture{}
+	ed := &editor{onPermisson: allow}
+	conn := connect(t, backend, ed, bridge.WithLogger(logs.logger()))
+	sid := start(t, conn)
+
+	prompt(t, conn, sid, "run it")
+
+	rec := logs.await(t, "permission grant failed")
+	require.Equal(t, "WARN", rec["level"])
+	require.Equal(t, "allow", rec["action"])
+	require.Equal(t, "bash", rec["tool"])
+	require.Contains(t, rec["error"], "already resolved")
+}
+
+func TestSessionAndPromptLifecycleAreLogged(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	backend := newFakeCrush(tr.sessionID(t), tr.firstTurn(t, "end_turn"))
+	logs := &logCapture{}
+	conn := connect(t, backend, &editor{}, bridge.WithLogger(logs.logger()))
+	sid := start(t, conn)
+
+	prompt(t, conn, sid, tcpPrompt)
+
+	created := logs.await(t, "session created")
+	require.Equal(t, "INFO", created["level"])
+	require.Equal(t, string(sid), created["session_id"])
+	require.Equal(t, "/work/proj", created["cwd"])
+
+	begun := logs.await(t, "prompt started")
+	require.Equal(t, string(sid), begun["session_id"])
+
+	done := logs.await(t, "prompt finished")
+	require.Equal(t, "INFO", done["level"])
+	require.Equal(t, string(sid), done["session_id"])
+	require.Equal(t, "end_turn", done["stop_reason"])
+	require.Contains(t, done, "duration")
+}
+
+func TestPermissionDecisionIsLogged(t *testing.T) {
+	tr := loadTrace(t, "bash-permission.sse")
+	backend := newFakeCrush(tr.sessionID(t), tr)
+	logs := &logCapture{}
+	conn := connect(t, backend, &editor{onPermisson: choose(acp.PermissionOptionKindRejectOnce)},
+		bridge.WithLogger(logs.logger()))
+	sid := start(t, conn)
+
+	prompt(t, conn, sid, "run it")
+
+	rec := logs.await(t, "permission decided")
+	require.Equal(t, "INFO", rec["level"])
+	require.Equal(t, "deny", rec["action"])
+	require.Equal(t, "bash", rec["tool"])
+	require.Equal(t, string(sid), rec["session_id"])
+}
+
+func TestEndOfTheCrushEventStreamIsLogged(t *testing.T) {
+	backend := newFakeCrush("sess-1", nil)
+	logs := &logCapture{}
+	conn := connect(t, backend, &editor{}, bridge.WithLogger(logs.logger()))
+	start(t, conn)
+
+	close(backend.events)
+
+	rec := logs.await(t, "crush event stream closed")
+	require.Equal(t, "WARN", rec["level"])
+	require.Equal(t, "/work/proj", rec["cwd"])
 }

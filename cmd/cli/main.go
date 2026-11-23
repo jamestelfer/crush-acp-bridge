@@ -49,6 +49,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				Sources: cli.EnvVars("CRUSH_ACP_URL"),
 			},
 			&cli.StringFlag{
+				Name:    "log-level",
+				Usage:   "log level: debug, info, warn or error",
+				Value:   "info",
+				Sources: cli.EnvVars("CRUSH_ACP_LOG_LEVEL"),
+			},
+			&cli.StringFlag{
+				Name:    "log-format",
+				Usage:   "log format on stderr: text or json",
+				Value:   "text",
+				Sources: cli.EnvVars("CRUSH_ACP_LOG_FORMAT"),
+			},
+			&cli.StringFlag{
 				Name:  "cwd",
 				Usage: "always open this project directory in Crush, ignoring the directory the editor sends",
 			},
@@ -59,7 +71,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 					fmt.Sprintf("crush-acp-bridge takes no arguments, got %q", cmd.Args().Slice()),
 					exitUsage)
 			}
-			return serve(ctx, cmd.String("crush-url"), cmd.String("cwd"), stdin, stdout)
+			logger, err := newLogger(stderr, cmd.String("log-level"), cmd.String("log-format"))
+			if err != nil {
+				return cli.Exit(err.Error(), exitUsage)
+			}
+			return serve(ctx, logger, cmd.String("crush-url"), cmd.String("cwd"), stdin, stdout)
 		},
 		// A usage error is the operator's mistake, not a runtime failure, and
 		// gets its own exit code.
@@ -95,7 +111,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // serve relays ACP traffic until the editor disconnects. Crush is opened in
 // the directory each ACP session names, or in forceCwd when set. stdout
 // carries ACP messages only; diagnostics go to stderr.
-func serve(ctx context.Context, crushURL, forceCwd string, stdin io.Reader, stdout io.Writer) error {
+func serve(ctx context.Context, log *slog.Logger, crushURL, forceCwd string, stdin io.Reader, stdout io.Writer) error {
 	client := crush.New(crushURL)
 	if err := client.Ping(ctx); err != nil {
 		return fmt.Errorf("%w (is `crush server` running at %s?)", err, crushURL)
@@ -107,8 +123,27 @@ func serve(ctx context.Context, crushURL, forceCwd string, stdin io.Reader, stdo
 		}
 		return client.OpenWorkspace(ctx, cwd)
 	}
-	if err := bridge.Serve(ctx, open, stdin, stdout); err != nil && !errors.Is(err, context.Canceled) {
+	log.Info("serving ACP on stdio", "crush_url", crushURL, "force_cwd", forceCwd)
+	if err := bridge.Serve(ctx, open, stdin, stdout, bridge.WithLogger(log)); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil
+}
+
+// newLogger builds the structured logger. Logs go to stderr because stdout
+// carries ACP messages.
+func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
+	var lvl slog.Level
+	if err := lvl.UnmarshalText([]byte(level)); err != nil {
+		return nil, fmt.Errorf("--log-level: %w", err)
+	}
+	opts := &slog.HandlerOptions{Level: lvl}
+	switch format {
+	case "text":
+		return slog.New(slog.NewTextHandler(w, opts)), nil
+	case "json":
+		return slog.New(slog.NewJSONHandler(w, opts)), nil
+	default:
+		return nil, fmt.Errorf("--log-format: unknown format %q (use text or json)", format)
+	}
 }

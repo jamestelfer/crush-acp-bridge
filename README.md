@@ -67,6 +67,11 @@ Configure the editor to run `crush-acp-bridge` as an ACP agent over stdio. For a
 |---|---|---|
 | `--crush-url` | `CRUSH_ACP_URL` | Base URL of the Crush server. Defaults to `http://127.0.0.1:8484`. HTTP only. |
 | `--cwd` | | Open this directory in Crush for every session, ignoring the directory the editor sends. |
+| `--log-level` | `CRUSH_ACP_LOG_LEVEL` | `debug`, `info`, `warn` or `error`. Defaults to `info`. |
+| `--log-format` | `CRUSH_ACP_LOG_FORMAT` | `text` or `json`. Defaults to `text`. |
+
+Logs are structured ([`log/slog`](https://pkg.go.dev/log/slog)) and go to stderr. Stdout carries ACP
+messages only. Records carry `session_id` and `cwd` where they apply.
 
 Each ACP session opens Crush in the directory the editor sends in `session/new`. The bridge fails at
 startup with a clear message if the server is unreachable.

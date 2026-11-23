@@ -6,6 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,14 +35,26 @@ var _ Backend = (*crush.Workspace)(nil)
 // per directory and reuses the result.
 type Opener func(ctx context.Context, cwd string) (Backend, error)
 
+// Option configures Serve.
+type Option func(*Agent)
+
+// WithLogger sets the logger for bridge activity. The default discards logs.
+func WithLogger(l *slog.Logger) Option {
+	return func(a *Agent) { a.log = l }
+}
+
 // Serve runs the ACP agent over in and out until the peer disconnects or ctx
 // ends. Each ACP session opens Crush in the directory the editor sends.
-func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer) error {
+func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts ...Option) error {
 	a := &Agent{
 		open:       open,
 		workspaces: map[string]Backend{},
 		sessions:   map[string]*session{},
 		serveCtx:   ctx,
+		log:        slog.New(slog.DiscardHandler),
+	}
+	for _, opt := range opts {
+		opt(a)
 	}
 	conn := acp.NewAgentSideConnection(a, out, in)
 	a.conn = conn
@@ -60,6 +73,7 @@ type Agent struct {
 	open     Opener
 	conn     *acp.AgentSideConnection
 	serveCtx context.Context
+	log      *slog.Logger
 
 	mu         sync.Mutex
 	workspaces map[string]Backend // by directory
@@ -127,6 +141,7 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	a.mu.Lock()
 	a.sessions[id] = &session{backend: backend, turn: make(chan acp.StopReason, 1)}
 	a.mu.Unlock()
+	a.log.Info("session created", "session_id", id, "cwd", req.Cwd)
 	return acp.NewSessionResponse{SessionId: acp.SessionId(id)}, nil
 }
 
@@ -152,12 +167,17 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	}
 	s.setSent(text.String())
 	defer s.setSent("")
+	began := time.Now()
+	a.log.Info("prompt started", "session_id", string(req.SessionId))
 	if err := s.backend.Prompt(ctx, string(req.SessionId), text.String()); err != nil {
+		a.log.Error("prompt rejected by crush", "session_id", string(req.SessionId), "error", err)
 		return acp.PromptResponse{}, err
 	}
 
 	select {
 	case reason := <-s.turn:
+		a.log.Info("prompt finished",
+			"session_id", string(req.SessionId), "stop_reason", string(reason), "duration", time.Since(began))
 		return acp.PromptResponse{StopReason: reason}, nil
 	case <-ctx.Done():
 		// The SDK cancels the prompt context on session/cancel. ACP expects a
@@ -166,7 +186,10 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 		select {
 		case <-s.turn:
 		case <-time.After(cancelGrace):
+			a.log.Warn("crush did not confirm the cancelled turn", "session_id", string(req.SessionId))
 		}
+		a.log.Info("prompt finished",
+			"session_id", string(req.SessionId), "stop_reason", string(acp.StopReasonCancelled), "duration", time.Since(began))
 		return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
 	}
 }
@@ -182,6 +205,7 @@ func (a *Agent) Cancel(ctx context.Context, n acp.CancelNotification) error {
 	if s == nil {
 		return fmt.Errorf("unknown session %q", n.SessionId)
 	}
+	a.log.Info("cancel requested", "session_id", string(n.SessionId))
 	return s.backend.Cancel(ctx, string(n.SessionId))
 }
 
@@ -209,21 +233,36 @@ func (a *Agent) workspace(ctx context.Context, cwd string) (Backend, error) {
 		return nil, err
 	}
 	a.workspaces[cwd] = b
-	go a.pump(events)
+	a.log.Info("workspace opened", "cwd", cwd)
+	go a.pump(events, cwd)
 	return b, nil
 }
 
 // pump translates Crush events and forwards them in order to the editor.
-func (a *Agent) pump(events <-chan []byte) {
+func (a *Agent) pump(events <-chan []byte, cwd string) {
 	tr := translate.New()
 	for data := range events {
 		updates, err := tr.Feed(data)
 		if err != nil {
+			a.log.Warn("crush event not translated", "error", err)
 			continue
 		}
 		for i := range updates {
 			a.forward(&updates[i])
 		}
+	}
+	if a.serveCtx.Err() != nil {
+		a.log.Debug("crush event stream ended at shutdown", "cwd", cwd)
+		return
+	}
+	a.log.Warn("crush event stream closed", "cwd", cwd)
+}
+
+// send delivers a session update to the editor. A failure is logged and does
+// not stop the event loop: later updates may still get through.
+func (a *Agent) send(sid acp.SessionId, update acp.SessionUpdate) {
+	if err := a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: update}); err != nil {
+		a.log.Warn("session update not delivered", "session_id", string(sid), "error", err)
 	}
 }
 
@@ -239,35 +278,35 @@ func (a *Agent) forward(u *translate.Update) {
 		if s.takeSent(u.Text) {
 			return
 		}
-		_ = a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateUserMessageText(u.Text)})
+		a.send(sid, acp.UpdateUserMessageText(u.Text))
 	case translate.MessageChunk:
-		_ = a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateAgentMessageText(u.Text)})
+		a.send(sid, acp.UpdateAgentMessageText(u.Text))
 	case translate.ThoughtChunk:
-		_ = a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateAgentThoughtText(u.Text)})
+		a.send(sid, acp.UpdateAgentThoughtText(u.Text))
 	case translate.ToolCallStarted:
-		_ = a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: acp.StartToolCall(
+		a.send(sid, acp.StartToolCall(
 			acp.ToolCallId(u.ToolCallID), u.ToolName,
 			acp.WithStartKind(toolKind(u.ToolName)),
 			acp.WithStartStatus(acp.ToolCallStatusInProgress),
-		)})
+		))
 	case translate.ToolCallInput:
 		title, locs := describeTool(u.ToolName, u.RawInput)
-		_ = a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateToolCall(
+		a.send(sid, acp.UpdateToolCall(
 			acp.ToolCallId(u.ToolCallID),
 			acp.WithUpdateTitle(title),
 			acp.WithUpdateLocations(locs),
 			acp.WithUpdateRawInput(u.RawInput),
-		)})
+		))
 	case translate.ToolCallFinished:
 		status := acp.ToolCallStatusCompleted
 		if u.IsError {
 			status = acp.ToolCallStatusFailed
 		}
-		_ = a.conn.SessionUpdate(a.serveCtx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateToolCall(
+		a.send(sid, acp.UpdateToolCall(
 			acp.ToolCallId(u.ToolCallID),
 			acp.WithUpdateStatus(status),
 			acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(u.Output))}),
-		)})
+		))
 	case translate.PermissionRequested:
 		// The editor may take minutes to answer; do not stall the event loop.
 		go a.askPermission(s.backend, *u)
@@ -318,5 +357,13 @@ func (a *Agent) askPermission(backend Backend, u translate.Update) {
 			action = crush.AllowForSession
 		}
 	}
-	_ = backend.Grant(a.serveCtx, u.RawPermission, action)
+	if err != nil {
+		a.log.Warn("permission request failed", "error", err, "tool", u.ToolName, "session_id", u.SessionID)
+	}
+	a.log.Info("permission decided",
+		"action", string(action), "tool", u.ToolName, "session_id", u.SessionID)
+	if err := backend.Grant(a.serveCtx, u.RawPermission, action); err != nil {
+		a.log.Warn("permission grant failed",
+			"error", err, "action", string(action), "tool", u.ToolName, "session_id", u.SessionID)
+	}
 }

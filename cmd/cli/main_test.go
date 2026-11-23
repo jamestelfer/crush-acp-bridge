@@ -73,11 +73,24 @@ func runEditor(t *testing.T, srv *fakeCrush, editorCwd string, extraArgs ...stri
 		done <- run(args, stdinR, &stdout, &errBuf)
 	}()
 
-	_, err := io.WriteString(stdinW, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}`+"\n")
-	require.NoError(t, err)
-	_, err = io.WriteString(stdinW, `{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":`+strconv.Quote(editorCwd)+`,"mcpServers":[]}}`+"\n")
-	require.NoError(t, err)
-	require.Eventually(t, func() bool { return len(srv.openedDirs()) > 0 }, 3*time.Second, 10*time.Millisecond)
+	// run may exit without reading stdin (a usage error), so write from a
+	// goroutine and let a closed reader release it.
+	go func() {
+		_, _ = io.WriteString(stdinW, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}`+"\n")
+		_, _ = io.WriteString(stdinW, `{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":`+strconv.Quote(editorCwd)+`,"mcpServers":[]}}`+"\n")
+	}()
+
+	deadline := time.After(3 * time.Second)
+	for len(srv.openedDirs()) == 0 {
+		select {
+		case code = <-done: // exited early, for example on a usage error
+			_ = stdinR.Close()
+			return code, errBuf.String()
+		case <-deadline:
+			require.FailNow(t, "Crush was never asked to open a directory")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 	require.NoError(t, stdinW.Close())
 
 	select {
@@ -150,4 +163,43 @@ func TestRunRejectsUnknownFlagAsUsageError(t *testing.T) {
 	code := run([]string{"crush-acp-bridge", "--no-such-flag"}, strings.NewReader(""), &stdout, &stderr)
 
 	assert.Equal(t, exitUsage, code)
+}
+
+func TestRunLogsStructuredJSONToStderrOnly(t *testing.T) {
+	srv := newFakeCrush(t)
+
+	code, stderr := runEditor(t, srv, "/editor/project", "--log-format", "json", "--log-level", "debug")
+
+	require.Equal(t, exitOK, code)
+	var opened map[string]any
+	for line := range strings.Lines(stderr) {
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec), "every stderr line is a JSON record: %q", line)
+		if rec["msg"] == "workspace opened" {
+			opened = rec
+		}
+	}
+	require.NotNil(t, opened, "stderr: %s", stderr)
+	assert.Equal(t, "/editor/project", opened["cwd"])
+	assert.Equal(t, "INFO", opened["level"])
+}
+
+func TestRunLogLevelFiltersRecords(t *testing.T) {
+	srv := newFakeCrush(t)
+
+	code, stderr := runEditor(t, srv, "/editor/project", "--log-level", "error")
+
+	require.Equal(t, exitOK, code)
+	assert.NotContains(t, stderr, "workspace opened")
+}
+
+func TestRunRejectsUnknownLogLevelAndFormat(t *testing.T) {
+	for _, flag := range [][]string{{"--log-level", "loud"}, {"--log-format", "xml"}} {
+		var stdout, stderr bytes.Buffer
+
+		code := run(append([]string{"crush-acp-bridge"}, flag...), strings.NewReader(""), &stdout, &stderr)
+
+		assert.Equal(t, exitUsage, code, "%v", flag)
+		assert.Contains(t, stderr.String(), flag[0])
+	}
 }
