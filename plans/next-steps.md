@@ -48,17 +48,19 @@ Ordered ahead of slice 3: without it, a second Crush agent in a directory fails.
 - `--managed` stays as the fallback, and is the only self-contained mode on Windows until named pipes are supported (`go-winio`).
 - Reconnect: when the event stream ends, the bridge ensures the server again, reopens its workspaces, reports current sessions and resubscribes. A turn in flight ends with an error.
 
-**Limits.** A plain `crush` TUI without `CRUSH_CLIENT_SERVER=1` runs in-process and still locks the project.
+**Limits.** Only servers take the data-directory lock (`db.WithDataDirLock`). A plain `crush` without `CRUSH_CLIENT_SERVER=1` runs in-process alongside the shared server without conflict, writing the same SQLite file, but sees no live events from it.
+
+**Aside.** Each `--managed` run leaves `~/.cache/crush/server-tcp___127.0.0.1_<port>/` behind, one per random port. `--shared` uses one fixed directory.
 
 **Acceptance.**
 
-- [ ] The client talks HTTP over a Unix socket (`unix://` URL), covered by a test.
-- [ ] Opening a workspace sends the bridge's environment, covered by a test.
-- [ ] A test pins the default socket path rule.
-- [ ] `--shared` connects to a running server, or starts a detached one that outlives the bridge, covered by tests using the fake Crush.
-- [ ] Two bridges started together in `--shared` mode end up on one server, covered by a test.
-- [ ] Live: two Crush agents in one directory run turns concurrently.
-- [ ] Live: a TUI with `CRUSH_CLIENT_SERVER=1` joins the bridges' server.
+- [x] The client talks HTTP over a Unix socket (`unix://` URL), covered by a test.
+- [x] Opening a workspace sends the bridge's environment, covered by a test.
+- [x] A test pins the default socket path rule.
+- [x] `--shared` connects to a running server, or starts a detached one that outlives the bridge, covered by tests using the fake Crush.
+- [x] Two bridges started together in `--shared` mode end up on one server, covered by a test.
+- [x] Live: two Crush agents in one directory run turns concurrently (two `--shared` bridges in `/tmp/crushlive/proj`; each got its own reply; both started a server and one survived).
+- [x] Live: a Crush client with `CRUSH_CLIENT_SERVER=1` joins the bridges' server (`crush run` held Unix-socket connections and opened no `crush.db` of its own). The TUI uses the same connection path.
 - [ ] A test drops the event stream mid-turn; the bridge reconnects, the turn ends with an error, and the next prompt works.
 - [ ] A test with the server gone for good ends the turn with an error and logs it.
 - [ ] Live: kill the shared server mid-session; the next prompt works.
@@ -98,3 +100,4 @@ Note: Paseo already marks Crush agents as supporting session persistence and lis
 - 2026-11-24: Slice 1 model selector done (`7cca523`), verified with `TestLiveModelSwitch` and a Paseo agent.
 - 2026-11-24: Slice 1 modes done (`1a27139`). Slice 1 complete. Found the data-directory lock behind slice 5.
 - 2026-11-24: Chose to join Crush's shared server. Merged reconnect and isolation into slice 2, ahead of slice 3. Slice 2 started.
+- 2026-11-24: `--shared` done (`69693ba`), verified live with two concurrent bridges and a `CRUSH_CLIENT_SERVER=1` client. Next: reconnect, Paseo provider, README.
