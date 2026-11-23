@@ -43,3 +43,14 @@ acpx prompt: build
         --cwd "${LIVE_CWD:?set LIVE_CWD to the project directory}" \
         --agent "$PWD/dist/crush-acp-bridge --crush-url ${url}" \
         --approve-all exec {{quote(prompt)}}
+
+# Record a Crush SSE trace into testdata/ (needs a running crush server and a configured provider)
+[positional-arguments]
+record-trace name action +prompts:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url="${CRUSH_ACP_URL:-http://127.0.0.1:8484}"
+    name="$1" action="$2"
+    shift 2
+    scripts/record-trace "${url}" "${LIVE_CWD:?set LIVE_CWD to the project directory}" \
+        "testdata/${name}.sse" "${action}" "$@"
