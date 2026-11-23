@@ -55,7 +55,7 @@ func WithLogger(l *slog.Logger) Option {
 func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts ...Option) error {
 	a := &Agent{
 		open:       open,
-		workspaces: map[string]Backend{},
+		workspaces: map[string]*workspace{},
 		reconnects: map[string]chan struct{}{},
 		modes:      map[string]acp.SessionModeId{},
 		sessions:   map[string]*session{},
@@ -86,10 +86,17 @@ type Agent struct {
 	log      *slog.Logger
 
 	mu         sync.Mutex
-	workspaces map[string]Backend           // by directory
+	workspaces map[string]*workspace        // by directory
 	reconnects map[string]chan struct{}     // closed when a directory reconnects
 	modes      map[string]acp.SessionModeId // Crush's active agent, by directory
 	sessions   map[string]*session
+}
+
+// workspace is a directory the bridge has open, or is opening.
+type workspace struct {
+	ready chan struct{} // closed when the first open finishes
+	err   error         // why the first open failed; set before ready closes
+	be    Backend       // nil until open; replaced on reconnect; guarded by Agent.mu
 }
 
 // session tracks one in-flight turn.
@@ -293,30 +300,59 @@ func (a *Agent) lookup(id acp.SessionId) (*session, error) {
 	return nil, fmt.Errorf("unknown session %q", id)
 }
 
-// backend returns the current backend for cwd. Reconnecting replaces it.
+// backend returns the current backend for cwd, or nil while it is not open.
+// Reconnecting replaces it.
 func (a *Agent) backend(cwd string) Backend {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.workspaces[cwd]
+	if w, ok := a.workspaces[cwd]; ok {
+		return w.be
+	}
+	return nil
 }
 
 // workspace returns the backend for cwd, opening it and starting its event
-// loop on first use.
+// loop on first use. Opening may wait for a server to start, so it runs
+// without a.mu; concurrent callers for one directory share a single open, and
+// a failed open is retried by the next caller.
 func (a *Agent) workspace(ctx context.Context, cwd string) (Backend, error) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	w, ok := a.workspaces[cwd]
+	if !ok {
+		w = &workspace{ready: make(chan struct{})}
+		a.workspaces[cwd] = w
+	}
+	a.mu.Unlock()
 
-	if b, ok := a.workspaces[cwd]; ok {
-		return b, nil
+	if !ok {
+		a.openWorkspace(ctx, cwd, w)
 	}
+	select {
+	case <-w.ready:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	if w.err != nil {
+		return nil, w.err
+	}
+	return a.backend(cwd), nil
+}
+
+// openWorkspace connects w, the pending entry for cwd, and releases its
+// waiters. On failure it removes the entry so a later call opens it afresh.
+func (a *Agent) openWorkspace(ctx context.Context, cwd string, w *workspace) {
+	defer close(w.ready)
 	b, events, err := a.connect(ctx, cwd)
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if err != nil {
-		return nil, err
+		w.err = err
+		delete(a.workspaces, cwd)
+		return
 	}
-	a.workspaces[cwd] = b
+	w.be = b
 	a.log.Info("workspace opened", "cwd", cwd)
 	go a.follow(events, cwd)
-	return b, nil
 }
 
 // connect opens cwd and subscribes to its events, which last until the bridge
@@ -433,7 +469,7 @@ func (a *Agent) reconnect(cwd string) <-chan []byte {
 		}
 
 		a.mu.Lock()
-		a.workspaces[cwd] = b
+		a.workspaces[cwd].be = b
 		if done, ok := a.reconnects[cwd]; ok {
 			defer close(done) // after the sessions below are reported
 			delete(a.reconnects, cwd)

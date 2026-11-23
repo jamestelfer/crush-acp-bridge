@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
-	"maps"
 	"slices"
 	"time"
 
@@ -117,7 +116,11 @@ func (a *Agent) ListSessions(ctx context.Context, req acp.ListSessionsRequest) (
 		dirs[*req.Cwd] = backend
 	} else {
 		a.mu.Lock()
-		maps.Copy(dirs, a.workspaces)
+		for cwd, w := range a.workspaces {
+			if w.be != nil {
+				dirs[cwd] = w.be
+			}
+		}
 		a.mu.Unlock()
 	}
 
