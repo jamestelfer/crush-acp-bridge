@@ -4,6 +4,7 @@ package bridge
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -35,7 +36,8 @@ type Backend interface {
 var _ Backend = (*crush.Workspace)(nil)
 
 // Opener returns the Backend for the project in cwd. The bridge calls it once
-// per directory and reuses the result.
+// per directory and reuses the result, and again to reconnect after the
+// directory's event stream ends.
 type Opener func(ctx context.Context, cwd string) (Backend, error)
 
 // Option configures Serve.
@@ -88,9 +90,11 @@ type Agent struct {
 
 // session tracks one in-flight turn.
 type session struct {
-	backend Backend
-	cwd     string
-	turn    chan acp.StopReason
+	beMu sync.Mutex
+	be   Backend // replaced on reconnect
+
+	cwd  string
+	turn chan turnEnd
 	// active is set while a Prompt call waits for its turn. Turns started by
 	// other clients (the Crush TUI) also end in this session; their ends must
 	// not complete a later prompt.
@@ -101,6 +105,29 @@ type session struct {
 	// dropped. Other clients' user messages are forwarded.
 	sentMu sync.Mutex
 	sent   string
+}
+
+// turnEnd is how a turn finished: a stop reason from Crush, or an error when
+// the bridge lost track of it.
+type turnEnd struct {
+	reason acp.StopReason
+	err    error
+}
+
+// errStreamLost ends a turn whose event stream dropped: its end will never
+// arrive.
+var errStreamLost = errors.New("lost the connection to crush during the turn; the bridge is reconnecting, so send the prompt again")
+
+func (s *session) backend() Backend {
+	s.beMu.Lock()
+	defer s.beMu.Unlock()
+	return s.be
+}
+
+func (s *session) setBackend(b Backend) {
+	s.beMu.Lock()
+	defer s.beMu.Unlock()
+	s.be = b
 }
 
 // takeSent reports whether text is the echo of the editor's own prompt, and
@@ -146,7 +173,7 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	}
 
 	a.mu.Lock()
-	a.sessions[id] = &session{backend: backend, cwd: req.Cwd, turn: make(chan acp.StopReason, 1)}
+	a.sessions[id] = &session{be: backend, cwd: req.Cwd, turn: make(chan turnEnd, 1)}
 	modes := modeState(a.modeLocked(req.Cwd))
 	a.mu.Unlock()
 	a.log.Info("session created", "session_id", id, "cwd", req.Cwd)
@@ -181,16 +208,20 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	defer s.setSent("")
 	began := time.Now()
 	a.log.Info("prompt started", "session_id", string(req.SessionId))
-	if err := s.backend.Prompt(ctx, string(req.SessionId), text.String()); err != nil {
+	if err := s.backend().Prompt(ctx, string(req.SessionId), text.String()); err != nil {
 		a.log.Error("prompt rejected by crush", "session_id", string(req.SessionId), "error", err)
 		return acp.PromptResponse{}, err
 	}
 
 	select {
-	case reason := <-s.turn:
+	case end := <-s.turn:
+		if end.err != nil {
+			a.log.Error("prompt failed", "session_id", string(req.SessionId), "error", end.err, "duration", time.Since(began))
+			return acp.PromptResponse{}, acp.NewRequestError(-32603, end.err.Error(), nil)
+		}
 		a.log.Info("prompt finished",
-			"session_id", string(req.SessionId), "stop_reason", string(reason), "duration", time.Since(began))
-		return acp.PromptResponse{StopReason: reason}, nil
+			"session_id", string(req.SessionId), "stop_reason", string(end.reason), "duration", time.Since(began))
+		return acp.PromptResponse{StopReason: end.reason}, nil
 	case <-ctx.Done():
 		// The SDK cancels the prompt context on session/cancel. ACP expects a
 		// normal response with the cancelled stop reason, sent after the
@@ -218,7 +249,7 @@ func (a *Agent) Cancel(ctx context.Context, n acp.CancelNotification) error {
 		return fmt.Errorf("unknown session %q", n.SessionId)
 	}
 	a.log.Info("cancel requested", "session_id", string(n.SessionId))
-	return s.backend.Cancel(ctx, string(n.SessionId))
+	return s.backend().Cancel(ctx, string(n.SessionId))
 }
 
 func (a *Agent) session(id string) *session {
@@ -246,28 +277,107 @@ func (a *Agent) workspace(ctx context.Context, cwd string) (Backend, error) {
 	}
 	a.workspaces[cwd] = b
 	a.log.Info("workspace opened", "cwd", cwd)
-	go a.pump(events, cwd)
+	go a.follow(events, cwd)
 	return b, nil
 }
 
-// pump translates Crush events and forwards them in order to the editor.
-func (a *Agent) pump(events <-chan []byte, cwd string) {
+// follow translates Crush events and forwards them in order to the editor.
+// When the stream ends it fails the directory's turns in flight and
+// reconnects. One translator spans reconnects, so text the editor already has
+// is not sent again when Crush resends a message.
+func (a *Agent) follow(events <-chan []byte, cwd string) {
 	tr := translate.New()
-	for data := range events {
-		updates, err := tr.Feed(data)
-		if err != nil {
-			a.log.Warn("crush event not translated", "error", err)
+	for {
+		for data := range events {
+			updates, err := tr.Feed(data)
+			if err != nil {
+				a.log.Warn("crush event not translated", "error", err)
+				continue
+			}
+			for i := range updates {
+				a.forward(&updates[i])
+			}
+		}
+		if a.serveCtx.Err() != nil {
+			a.log.Debug("crush event stream ended at shutdown", "cwd", cwd)
+			return
+		}
+		a.log.Warn("crush event stream closed", "cwd", cwd)
+		a.failTurns(cwd)
+		if events = a.reconnect(cwd); events == nil {
+			return
+		}
+	}
+}
+
+// failTurns ends every turn waiting in cwd with errStreamLost.
+func (a *Agent) failTurns(cwd string) {
+	for _, s := range a.sessionsIn(cwd) {
+		if !s.active.Load() {
 			continue
 		}
-		for i := range updates {
-			a.forward(&updates[i])
+		select {
+		case s.turn <- turnEnd{err: errStreamLost}:
+		default:
 		}
 	}
-	if a.serveCtx.Err() != nil {
-		a.log.Debug("crush event stream ended at shutdown", "cwd", cwd)
-		return
+}
+
+func (a *Agent) sessionsIn(cwd string) map[string]*session {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := map[string]*session{}
+	for id, s := range a.sessions {
+		if s.cwd == cwd {
+			out[id] = s
+		}
 	}
-	a.log.Warn("crush event stream closed", "cwd", cwd)
+	return out
+}
+
+// Reconnect backoff: the first retry is quick, as a dropped stream is the
+// common case; later ones wait up to reconnectMax while the server restarts.
+const (
+	reconnectMin = 100 * time.Millisecond
+	reconnectMax = 5 * time.Second
+)
+
+// reconnect reopens cwd until it succeeds or the bridge stops, then reports
+// the directory's sessions to Crush again and returns the new event stream.
+// It returns nil when the bridge is shutting down.
+func (a *Agent) reconnect(cwd string) <-chan []byte {
+	delay := reconnectMin
+	for attempt := 1; ; attempt++ {
+		select {
+		case <-a.serveCtx.Done():
+			return nil
+		case <-time.After(delay):
+		}
+		delay = min(2*delay, reconnectMax)
+
+		b, err := a.open(a.serveCtx, cwd)
+		var events <-chan []byte
+		if err == nil {
+			events, err = b.Events(a.serveCtx)
+		}
+		if err != nil {
+			a.log.Warn("crush reconnect failed", "cwd", cwd, "attempt", attempt, "error", err)
+			continue
+		}
+
+		a.mu.Lock()
+		a.workspaces[cwd] = b
+		a.mu.Unlock()
+		for id, s := range a.sessionsIn(cwd) {
+			s.setBackend(b)
+			// Permission prompts reach only the client viewing the session.
+			if err := b.SetCurrentSession(a.serveCtx, id); err != nil {
+				a.log.Warn("session not reported after reconnect", "session_id", id, "error", err)
+			}
+		}
+		a.log.Info("crush reconnected", "cwd", cwd, "attempt", attempt)
+		return events
+	}
 }
 
 // send delivers a session update to the editor. A failure is logged and does
@@ -321,13 +431,13 @@ func (a *Agent) forward(u *translate.Update) {
 		))
 	case translate.PermissionRequested:
 		// The editor may take minutes to answer; do not stall the event loop.
-		go a.askPermission(s.backend, *u)
+		go a.askPermission(s.backend(), *u)
 	case translate.TurnEnded:
 		if !s.active.Load() {
 			return
 		}
 		select {
-		case s.turn <- acp.StopReason(u.StopReason):
+		case s.turn <- turnEnd{reason: acp.StopReason(u.StopReason)}:
 		default:
 		}
 	}

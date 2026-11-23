@@ -89,7 +89,7 @@ func (a *Agent) SetSessionConfigOption(ctx context.Context, req acp.SetSessionCo
 		return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("unknown session %q", set.SessionId)
 	}
 
-	models, err := s.backend.Models(ctx)
+	models, err := s.backend().Models(ctx)
 	if err != nil {
 		return acp.SetSessionConfigOptionResponse{}, err
 	}
@@ -100,13 +100,13 @@ func (a *Agent) SetSessionConfigOption(ctx context.Context, req acp.SetSessionCo
 		})
 	}
 
-	if err := s.backend.SetModel(ctx, ref); err != nil {
+	if err := s.backend().SetModel(ctx, ref); err != nil {
 		a.log.Error("model change failed", "session_id", string(set.SessionId), "model", string(set.Value), "error", err)
 		return acp.SetSessionConfigOptionResponse{}, err
 	}
 	a.log.Info("model changed", "session_id", string(set.SessionId), "model", string(set.Value))
 
-	models, err = s.backend.Models(ctx)
+	models, err = s.backend().Models(ctx)
 	if err != nil {
 		return acp.SetSessionConfigOptionResponse{}, err
 	}

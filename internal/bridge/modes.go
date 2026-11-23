@@ -52,7 +52,7 @@ func (a *Agent) SetSessionMode(ctx context.Context, req acp.SetSessionModeReques
 		return acp.SetSessionModeResponse{}, fmt.Errorf("unknown session %q", req.SessionId)
 	}
 
-	if err := s.backend.SetMainAgent(ctx, string(req.ModeId)); err != nil {
+	if err := s.backend().SetMainAgent(ctx, string(req.ModeId)); err != nil {
 		a.log.Warn("mode change failed", "session_id", string(req.SessionId), "mode", string(req.ModeId), "error", err)
 		if errors.Is(err, crush.ErrBusy) {
 			return acp.SetSessionModeResponse{}, acp.NewRequestError(-32603, "crush is busy; change mode when the turn ends", nil)

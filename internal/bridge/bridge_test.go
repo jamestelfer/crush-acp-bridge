@@ -98,6 +98,7 @@ type fakeCrush struct {
 	setModels []crush.ModelRef
 	agents    []string
 	agentErr  error
+	currents  []string
 }
 
 func (f *fakeCrush) SetMainAgent(_ context.Context, id string) error {
@@ -143,15 +144,44 @@ func (f *fakeCrush) NewSession(context.Context, string) (string, error) {
 	}
 	return f.sessionID, nil
 }
-func (f *fakeCrush) SetCurrentSession(context.Context, string) error { return nil }
-func (f *fakeCrush) Events(context.Context) (<-chan []byte, error)   { return f.events, nil }
+func (f *fakeCrush) SetCurrentSession(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.currents = append(f.currents, id)
+	return nil
+}
+
+func (f *fakeCrush) Events(context.Context) (<-chan []byte, error) { return f.current(), nil }
+
+func (f *fakeCrush) current() chan []byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.events
+}
+
+// drop ends the current event stream, as a lost connection does. The next
+// Events call returns a fresh stream.
+func (f *fakeCrush) drop() {
+	f.mu.Lock()
+	old := f.events
+	f.events = make(chan []byte, 1024)
+	f.mu.Unlock()
+	close(old)
+}
+
+func (f *fakeCrush) currentSessions() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.currents...)
+}
 
 func (f *fakeCrush) Prompt(_ context.Context, _ string, text string) error {
 	f.mu.Lock()
 	f.prompts = append(f.prompts, text)
+	events := f.events
 	f.mu.Unlock()
 	for _, data := range f.script {
-		f.events <- data
+		events <- data
 	}
 	return nil
 }
@@ -806,7 +836,7 @@ func TestEndOfTheCrushEventStreamIsLogged(t *testing.T) {
 	conn := connect(t, backend, &editor{}, bridge.WithLogger(logs.logger()))
 	start(t, conn)
 
-	close(backend.events)
+	backend.drop()
 
 	rec := logs.await(t, "crush event stream closed")
 	require.Equal(t, "WARN", rec["level"])

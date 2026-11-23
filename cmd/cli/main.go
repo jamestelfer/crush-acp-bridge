@@ -178,16 +178,25 @@ func serve(ctx context.Context, log *slog.Logger, opts serveOptions, stdin io.Re
 		defer func() { _ = srv.Stop() }()
 		crushURL = srv.URL()
 	}
+	// ensure brings the shared server up; it runs again before every reopen,
+	// so a reconnect replaces a server that has gone.
+	ensure := func(context.Context) error { return nil }
 	if opts.shared {
-		socket := cmp.Or(opts.socket, crushserver.DefaultSocket())
-		if err := crushserver.EnsureShared(ctx, crushserver.SharedOptions{
+		shared := crushserver.SharedOptions{
 			Binary: opts.crushBin,
-			Socket: socket,
+			Socket: cmp.Or(opts.socket, crushserver.DefaultSocket()),
 			Logger: log,
-		}); err != nil {
-			return fmt.Errorf("shared crush server: %w", err)
 		}
-		crushURL = "unix://" + socket
+		ensure = func(ctx context.Context) error {
+			if err := crushserver.EnsureShared(ctx, shared); err != nil {
+				return fmt.Errorf("shared crush server: %w", err)
+			}
+			return nil
+		}
+		if err := ensure(ctx); err != nil {
+			return err
+		}
+		crushURL = "unix://" + shared.Socket
 	}
 
 	client := crush.New(crushURL)
@@ -198,6 +207,9 @@ func serve(ctx context.Context, log *slog.Logger, opts serveOptions, stdin io.Re
 	open := func(ctx context.Context, cwd string) (bridge.Backend, error) {
 		if opts.forceCwd != "" {
 			cwd = opts.forceCwd
+		}
+		if err := ensure(ctx); err != nil {
+			return nil, err
 		}
 		return client.OpenWorkspace(ctx, cwd)
 	}
