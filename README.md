@@ -171,7 +171,7 @@ provider that runs the bridge in shared mode, then run `paseo reload`:
 Paseo starts one bridge per agent. The bridges share one Crush server, so several agents can work in
 the same directory. Each agent works in its own directory, including a git worktree. Paseo lists Crush's
 models and modes, and asks for a mode when it creates a Crush agent. Permission requests appear in Paseo
-with the command to be run.
+with the command to be run, or the diff of a file edit.
 
 Paseo caches each provider's model list. Run `paseo provider diagnostic crush` to refresh it after
 changing Crush's providers.
@@ -191,6 +191,10 @@ Supported:
 
 - `initialize`, `session/new` and `session/prompt`, with streamed text and reasoning.
 - Tool calls with kind, title, input, output and file locations.
+- Diffs for Crush's `edit`, `multiedit` and `write` tools, in tool calls and in permission requests. The
+  diff covers the whole file, from Crush's permission request or edit result. Until one arrives, an edit
+  shows each replaced fragment. A write Crush does not ask about, such as one already allowed for the
+  session, records only a unified diff, which is shown as text.
 - Permission requests: allow once, allow for the session, and reject.
 - `session/cancel`. The prompt returns the `cancelled` stop reason.
 - User messages typed in other Crush clients, shown in the editor as they arrive.
@@ -201,7 +205,6 @@ Supported:
 Not supported:
 
 - Editor file system and terminal delegation. The agent reads files from disk, so unsaved buffers are invisible.
-- Diffs for file edits. Edit calls show a title and location only.
 - Crush question prompts.
 - The shared server on Windows, which uses a named pipe.
 - Image and attachment prompts. Only text blocks are sent.

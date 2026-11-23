@@ -90,10 +90,16 @@ Notes:
 
 ### 4. Diffs for edit tools
 
-- [ ] Snapshot tests cover an edit and a write trace, with ACP diff content (path, old text, new text).
-- [ ] Permission requests for edits carry the diff.
-- [ ] A live edit permission shows a diff in Paseo.
-- [ ] `just verify` passes.
+- [x] Snapshot tests cover an edit and a write trace, with ACP diff content (path, old text, new text). Traces `edit-permission.sse` (edit, multiedit) and `write-permission.sse` (new file asked, overwrite not asked).
+- [x] Permission requests for edits carry the diff, and a tool call update with it goes first: Paseo renders the tool call it holds, not the request's copy.
+- [x] A live edit permission shows a diff in Paseo: the pending permission's detail was `edit` with the whole file before and after; the completed tool call kept it.
+- [x] `just verify` passes.
+
+Notes:
+
+- Old and new text are the whole file, from Crush's permission parameters (`old_content`, `new_content`) or the edit and multiedit result metadata. Until then, edit and multiedit show each `old_string`/`new_string` fragment.
+- A write's result metadata holds only a unified diff. Without a permission request, a new file gets a diff with no old text; an overwrite shows Crush's unified diff as text, which Paseo renders as a diff.
+- Successful edit results drop Crush's confirmation text: Paseo reads an edit's text content as a unified diff.
 
 ### 5. Unsupported methods
 
@@ -114,3 +120,4 @@ Notes:
 - 2026-11-24: Reconnect done (`d2ee79d`, `2e6161f`), Paseo switched to `--shared`, README updated. Slice 2 complete. Next: slice 3.
 - 2026-11-24: Slice 3 done (`433eb23`), verified live through Paseo resume, `paseo import` and a direct `session/list`. Next: slice 4.
 - 2026-11-24: Review fixes applied (`ff12325`..`2073fbd`).
+- 2026-11-24: Slice 4 done (`18e8ccf`), verified live with a Paseo Crush agent: the pending edit permission carried the whole-file diff. Next: slice 5.
