@@ -28,6 +28,7 @@ import (
 )
 
 type editor struct {
+	trace    func(string) // optional; receives a line per update
 	mu       sync.Mutex
 	text     strings.Builder
 	toolKind []acp.ToolKind
@@ -39,9 +40,14 @@ func (e *editor) SessionUpdate(_ context.Context, n acp.SessionNotification) err
 	defer e.mu.Unlock()
 	if c := n.Update.AgentMessageChunk; c != nil && c.Content.Text != nil {
 		e.text.WriteString(c.Content.Text.Text)
+		e.log("text", c.Content.Text.Text)
+	}
+	if c := n.Update.AgentThoughtChunk; c != nil && c.Content.Text != nil {
+		e.log("thought", c.Content.Text.Text)
 	}
 	if tc := n.Update.ToolCall; tc != nil {
 		e.toolKind = append(e.toolKind, tc.Kind)
+		e.log("tool", fmt.Sprintf("%s kind=%s", tc.Title, tc.Kind))
 	}
 	return nil
 }
@@ -56,6 +62,12 @@ func (e *editor) RequestPermission(_ context.Context, r acp.RequestPermissionReq
 		}
 	}
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
+}
+
+func (e *editor) log(kind, text string) {
+	if e.trace != nil {
+		e.trace(fmt.Sprintf("%s: %q", kind, text))
+	}
 }
 
 func (e *editor) reset() string {
@@ -96,7 +108,10 @@ func (*editor) CompleteElicitation(context.Context, acp.CompleteElicitationNotif
 	return errNo
 }
 
-func TestLiveSession(t *testing.T) {
+// dial starts the bridge binary and opens an ACP session through it.
+func dial(t *testing.T, ctx context.Context, ed *editor) (*acp.ClientSideConnection, acp.SessionId, string, string) {
+	t.Helper()
+
 	url, cwd := os.Getenv("CRUSH_ACP_URL"), os.Getenv("LIVE_CWD")
 	if url == "" || cwd == "" {
 		t.Skip("CRUSH_ACP_URL and LIVE_CWD must be set")
@@ -113,15 +128,20 @@ func TestLiveSession(t *testing.T) {
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { _ = stdin.Close(); _ = cmd.Wait() })
 
-	ed := &editor{}
 	conn := acp.NewClientSideConnection(ed, stdin, stdout)
-	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Minute)
-	defer cancel()
-
 	_, err = conn.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
 	require.NoError(t, err)
 	sess, err := conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
 	require.NoError(t, err)
+	return conn, sess.SessionId, url, cwd
+}
+
+func TestLiveSession(t *testing.T) {
+	ed := &editor{}
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Minute)
+	defer cancel()
+	conn, sessID, url, cwd := dial(t, ctx, ed)
+	sess := struct{ SessionId acp.SessionId }{sessID}
 
 	say := func(text string) acp.PromptResponse {
 		resp, err := conn.Prompt(ctx, acp.PromptRequest{

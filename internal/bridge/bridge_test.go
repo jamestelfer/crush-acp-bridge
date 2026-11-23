@@ -408,3 +408,36 @@ func TestCancelStopsTurnAndReportsCancelled(t *testing.T) {
 	defer backend.mu.Unlock()
 	require.Equal(t, []string{string(sid)}, backend.cancels)
 }
+
+// A turn started by another client (the TUI) ends while this editor has no
+// prompt in flight. That end must not complete the editor's next prompt.
+func TestEarlierTurnByAnotherClientDoesNotEndNextPrompt(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	before, atCancel := tr.cancelledTurn(t)
+	backend := newFakeCrush(tr.sessionID(t), before)
+	backend.onCancel = atCancel
+	ed := &editor{}
+	conn := connect(t, backend, ed)
+	sid := start(t, conn)
+
+	// Another client's turn runs to completion.
+	for _, data := range tr.firstTurn(t, "end_turn") {
+		backend.events <- data
+	}
+	require.Eventually(t, func() bool { return len(ed.snapshot()) > 0 }, 2*time.Second, 10*time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // let the end-of-turn event be processed
+
+	result := make(chan acp.PromptResponse, 1)
+	go func() {
+		resp, _ := conn.Prompt(t.Context(), acp.PromptRequest{
+			SessionId: sid, Prompt: []acp.ContentBlock{acp.TextBlock("next")},
+		})
+		result <- resp
+	}()
+
+	select {
+	case resp := <-result:
+		t.Fatalf("prompt returned %q before its own turn ended", resp.StopReason)
+	case <-time.After(300 * time.Millisecond):
+	}
+}

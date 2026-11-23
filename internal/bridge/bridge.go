@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/acp-go-sdk"
@@ -61,6 +62,10 @@ type Agent struct {
 // session tracks one in-flight turn.
 type session struct {
 	turn chan acp.StopReason
+	// active is set while a Prompt call waits for its turn. Turns started by
+	// other clients (the Crush TUI) also end in this session; their ends must
+	// not complete a later prompt.
+	active atomic.Bool
 }
 
 var _ acp.Agent = (*Agent)(nil)
@@ -97,6 +102,13 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	s := a.session(string(req.SessionId))
 	if s == nil {
 		return acp.PromptResponse{}, fmt.Errorf("unknown session %q", req.SessionId)
+	}
+
+	s.active.Store(true)
+	defer s.active.Store(false)
+	select { // discard a signal left over from a turn that ended after its prompt gave up
+	case <-s.turn:
+	default:
 	}
 
 	var text strings.Builder
@@ -199,6 +211,9 @@ func (a *Agent) forward(u *translate.Update) {
 		// The editor may take minutes to answer; do not stall the event loop.
 		go a.askPermission(*u)
 	case translate.TurnEnded:
+		if !s.active.Load() {
+			return
+		}
 		select {
 		case s.turn <- acp.StopReason(u.StopReason):
 		default:
