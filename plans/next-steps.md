@@ -72,6 +72,7 @@ Notes:
 
 - Paseo now requires an explicit mode (`coder` or `plan`) when it creates a Crush agent from another provider's agent.
 - A permanently gone server makes the bridge retry every 5 seconds, logging a warning each time.
+- Deferred: a dropped event stream to a server that is still running fails the turn, and reconnect registers a new client ID. Keeping the turn alive and re-subscribing with the existing client is deferred.
 
 ### 3. `session/list`, `session/load` and `session/resume`
 
@@ -112,3 +113,4 @@ Notes:
 - 2026-11-24: `--shared` done (`69693ba`), verified live with two concurrent bridges and a `CRUSH_CLIENT_SERVER=1` client. Next: reconnect, Paseo provider, README.
 - 2026-11-24: Reconnect done (`d2ee79d`, `2e6161f`), Paseo switched to `--shared`, README updated. Slice 2 complete. Next: slice 3.
 - 2026-11-24: Slice 3 done (`433eb23`), verified live through Paseo resume, `paseo import` and a direct `session/list`. Next: slice 4.
+- 2026-11-24: Review fixes applied (`ff12325`..`2073fbd`).
