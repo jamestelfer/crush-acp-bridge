@@ -49,6 +49,12 @@ Tool versions (Go, golangci-lint, goreleaser, just, Crush, gcloud, Node) are pin
   `TestMain` so obsolete snapshots fail the normal test run and can be removed
   during regeneration.
 
+## Test doubles for Crush
+
+`internal/fakecrush` serves the part of the Crush API the bridge uses. Packages that start a child
+process (`internal/crushserver`, `cmd/cli`) call `fakecrush.MaybeRunAsServer()` from `TestMain` and
+spawn `os.Args[0]` as the `crush` executable, so tests need no external binary and run on every platform.
+
 ## Cross-platform rules
 
 Linux, macOS and Windows on `amd64` and `arm64` are equal targets, all tested in CI: use `path/filepath` for paths, keep filenames legal on Windows, build-tag anything POSIX-only, and keep `CGO_ENABLED=0`.
