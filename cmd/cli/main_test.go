@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jamestelfer/crush-acp-bridge/internal/fakecrush"
 )
 
 // fakeCrush answers health checks and records the directories opened.
@@ -202,4 +207,141 @@ func TestRunRejectsUnknownLogLevelAndFormat(t *testing.T) {
 		assert.Equal(t, exitUsage, code, "%v", flag)
 		assert.Contains(t, stderr.String(), flag[0])
 	}
+}
+
+// TestMain lets the test binary stand in for the crush executable in managed mode.
+func TestMain(m *testing.M) {
+	fakecrush.MaybeRunAsServer()
+	os.Exit(m.Run())
+}
+
+func healthyAt(url string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/v1/health", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+func TestManagedModeRunsAChildServerThatLivesAndDiesWithTheBridge(t *testing.T) {
+	t.Setenv(fakecrush.EnvMode, "serve") // inherited by the child
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	var stderr syncBuffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run([]string{
+			"crush-acp-bridge", "--managed", "--crush-bin", os.Args[0], "--log-format", "json", "--log-level", "debug",
+		}, stdinR, stdoutW, &stderr)
+		_ = stdoutW.Close()
+	}()
+	lines := make(chan string, 16)
+	go func() {
+		sc := bufio.NewScanner(stdoutR)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+		close(lines)
+	}()
+
+	go func() {
+		_, _ = io.WriteString(stdinW, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}`+"\n")
+		_, _ = io.WriteString(stdinW, `{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/editor/project","mcpServers":[]}}`+"\n")
+	}()
+
+	// Both responses arrive on stdout, and nothing else does.
+	var sessionID string
+	for range 2 {
+		select {
+		case line := <-lines:
+			var msg struct {
+				JSONRPC string `json:"jsonrpc"`
+				ID      int    `json:"id"`
+				Result  struct {
+					SessionID string `json:"sessionId"`
+				} `json:"result"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(line), &msg), "stdout must carry only JSON-RPC: %q", line)
+			require.Equal(t, "2.0", msg.JSONRPC)
+			if msg.ID == 2 {
+				sessionID = msg.Result.SessionID
+			}
+		case <-time.After(10 * time.Second):
+			require.FailNow(t, "no ACP response", "stderr: %s", stderr.String())
+		}
+	}
+	assert.Equal(t, "sess-1", sessionID, "the session came from the child server")
+
+	serverURL := loggedServerURL(t, &stderr)
+	require.True(t, healthyAt(serverURL), "the child server is up while the bridge runs")
+
+	require.NoError(t, stdinW.Close())
+	select {
+	case code := <-done:
+		require.Equal(t, exitOK, code, "stderr: %s", stderr.String())
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "run did not return after the editor disconnected")
+	}
+	assert.Eventually(t, func() bool { return !healthyAt(serverURL) }, 5*time.Second, 50*time.Millisecond,
+		"the child server must stop with the bridge")
+}
+
+// loggedServerURL returns the url attribute of the "crush server started" record.
+func loggedServerURL(t *testing.T, stderr *syncBuffer) string {
+	t.Helper()
+	for line := range strings.Lines(stderr.String()) {
+		var rec map[string]any
+		if json.Unmarshal([]byte(line), &rec) == nil && rec["msg"] == "crush server started" {
+			url, ok := rec["url"].(string)
+			require.True(t, ok)
+			return url
+		}
+	}
+	require.FailNow(t, "no \"crush server started\" record", "stderr: %s", stderr.String())
+	return ""
+}
+
+func TestManagedModeRejectsAnExplicitCrushURL(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"crush-acp-bridge", "--managed", "--crush-url", "http://127.0.0.1:1"},
+		strings.NewReader(""), &stdout, &stderr)
+
+	assert.Equal(t, exitUsage, code)
+	assert.Contains(t, stderr.String(), "--managed")
+}
+
+func TestManagedModeReportsAMissingCrushBinary(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"crush-acp-bridge", "--managed", "--crush-bin", "/no/such/crush"},
+		strings.NewReader(""), &stdout, &stderr)
+
+	assert.Equal(t, exitFailure, code)
+	assert.Contains(t, stderr.String(), "/no/such/crush")
+}
+
+// syncBuffer is a goroutine-safe sink for stderr.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

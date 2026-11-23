@@ -9,12 +9,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/urfave/cli/v3"
 
 	"github.com/jamestelfer/crush-acp-bridge/internal/bridge"
 	"github.com/jamestelfer/crush-acp-bridge/internal/crush"
+	"github.com/jamestelfer/crush-acp-bridge/internal/crushserver"
 )
 
 // Exit codes. Anything a supervisor might branch on lives here rather than
@@ -48,6 +50,20 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				Value:   "http://127.0.0.1:8484",
 				Sources: cli.EnvVars("CRUSH_ACP_URL"),
 			},
+			&cli.BoolFlag{
+				Name:  "managed",
+				Usage: "start `crush server` as a child process and stop it on exit (no separate server needed)",
+			},
+			&cli.StringFlag{
+				Name:    "crush-bin",
+				Usage:   "crush executable for --managed",
+				Value:   "crush",
+				Sources: cli.EnvVars("CRUSH_ACP_CRUSH_BIN"),
+			},
+			&cli.StringFlag{
+				Name:  "listen",
+				Usage: "host:port for the --managed server, so other Crush clients can attach (default: a free local port)",
+			},
 			&cli.StringFlag{
 				Name:    "log-level",
 				Usage:   "log level: debug, info, warn or error",
@@ -75,7 +91,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			if err != nil {
 				return cli.Exit(err.Error(), exitUsage)
 			}
-			return serve(ctx, logger, cmd.String("crush-url"), cmd.String("cwd"), stdin, stdout)
+			// Only an explicit flag conflicts: CRUSH_ACP_URL may be set for
+			// unmanaged runs in the same shell.
+			if cmd.Bool("managed") && flagGiven(args, "crush-url") {
+				return cli.Exit("--managed starts its own server; remove --crush-url", exitUsage)
+			}
+			return serve(ctx, logger, serveOptions{
+				crushURL: cmd.String("crush-url"),
+				forceCwd: cmd.String("cwd"),
+				managed:  cmd.Bool("managed"),
+				crushBin: cmd.String("crush-bin"),
+				listen:   cmd.String("listen"),
+			}, stdin, stdout)
 		},
 		// A usage error is the operator's mistake, not a runtime failure, and
 		// gets its own exit code.
@@ -108,26 +135,59 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return exitFailure
 }
 
+// serveOptions selects where Crush runs and how the bridge reaches it.
+type serveOptions struct {
+	crushURL string
+	forceCwd string // open this directory for every session when set
+	managed  bool   // run `crush server` as a child instead of connecting
+	crushBin string
+	listen   string
+}
+
 // serve relays ACP traffic until the editor disconnects. Crush is opened in
 // the directory each ACP session names, or in forceCwd when set. stdout
 // carries ACP messages only; diagnostics go to stderr.
-func serve(ctx context.Context, log *slog.Logger, crushURL, forceCwd string, stdin io.Reader, stdout io.Writer) error {
+func serve(ctx context.Context, log *slog.Logger, opts serveOptions, stdin io.Reader, stdout io.Writer) error {
+	crushURL := opts.crushURL
+	if opts.managed {
+		srv, err := crushserver.Start(ctx, crushserver.Options{
+			Binary: opts.crushBin,
+			Listen: opts.listen,
+			Logger: log,
+		})
+		if err != nil {
+			return fmt.Errorf("start crush server: %w", err)
+		}
+		defer func() { _ = srv.Stop() }()
+		crushURL = srv.URL()
+	}
+
 	client := crush.New(crushURL)
 	if err := client.Ping(ctx); err != nil {
 		return fmt.Errorf("%w (is `crush server` running at %s?)", err, crushURL)
 	}
 
 	open := func(ctx context.Context, cwd string) (bridge.Backend, error) {
-		if forceCwd != "" {
-			cwd = forceCwd
+		if opts.forceCwd != "" {
+			cwd = opts.forceCwd
 		}
 		return client.OpenWorkspace(ctx, cwd)
 	}
-	log.Info("serving ACP on stdio", "crush_url", crushURL, "force_cwd", forceCwd)
+	log.Info("serving ACP on stdio", "crush_url", crushURL, "managed", opts.managed, "force_cwd", opts.forceCwd)
 	if err := bridge.Serve(ctx, open, stdin, stdout, bridge.WithLogger(log)); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil
+}
+
+// flagGiven reports whether args contains --name or --name=value.
+func flagGiven(args []string, name string) bool {
+	for _, a := range args {
+		if a == "--"+name || strings.HasPrefix(a, "--"+name+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // newLogger builds the structured logger. Logs go to stderr because stdout
