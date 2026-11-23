@@ -83,7 +83,7 @@ Note: Paseo already marks Crush agents as supporting session persistence and lis
 - [ ] A live edit permission shows a diff in Paseo.
 - [ ] `just verify` passes.
 
-### 6. Unsupported methods
+### 5. Unsupported methods
 
 - [ ] Paseo logs show no unexpected method-not-found errors during a full session.
 
