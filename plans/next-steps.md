@@ -25,7 +25,7 @@ Paseo shows model `-` today. The bridge advertises Crush's models.
 - [x] Live: `paseo provider models crush` lists the Vertex models, with the current one as default.
 - [x] Paseo's agent view shows the real model name instead of `-` (live): agent runtime reports `vertexai/gemini-3.1-pro-preview`.
 - [x] `just verify` passes.
-- [ ] Modes: Crush's `coder`/`plan` agents (`POST /agent/main`) as an ACP mode selector. Crush exposes no read of the current agent, so this needs a closer look.
+- [x] Modes: Crush's `coder`/`plan` agents as ACP modes (`1a27139`). The bridge tracks the mode it set, since Crush cannot report it. Live: plan mode refused a file write; coder mode wrote it after one permission. Paseo's diagnostic reports `modes=2`.
 
 Notes:
 
@@ -60,7 +60,16 @@ Note: Paseo already marks Crush agents as supporting session persistence and lis
 
 ### 5. Isolation per Paseo agent
 
-Two agents in one directory share a Crush database file.
+Crush allows one process per project data directory (`.crush/`). A second managed server opening the same project gets `500 failed to connect to database: data directory already in use by another crush process`. Each managed bridge runs its own server, so this breaks:
+
+- a second Crush agent in the same Paseo workspace;
+- Paseo's catalogue refresh while a Crush agent is live in that directory ("Internal error"; Paseo keeps the last catalogue);
+- the Crush TUI run in-process in the same directory.
+
+Options, not yet chosen:
+
+- A. Managed bridges share one Crush server per user, found at a well-known address, so the server's lock is held once.
+- B. Each bridge opens the workspace with its own data directory, if `POST /workspaces` honours `data_dir`. This loses shared history with the TUI.
 
 - [ ] Two bridges in the same cwd run concurrent turns without cross-talk, covered by a test with two managed fake servers.
 - [ ] `README.md` states the behaviour.
@@ -78,4 +87,5 @@ Two agents in one directory share a Crush database file.
 ## Log
 
 - 2026-11-24: Spike commits pushed. Plan written. Slice 1 started.
-- 2026-11-24: Slice 1 model selector done (`7cca523`), verified with `TestLiveModelSwitch` and a Paseo agent. Modes remain open within slice 1.
+- 2026-11-24: Slice 1 model selector done (`7cca523`), verified with `TestLiveModelSwitch` and a Paseo agent.
+- 2026-11-24: Slice 1 modes done (`1a27139`). Slice 1 complete. Found the data-directory lock behind slice 5; awaiting a decision on A or B.
