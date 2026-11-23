@@ -109,6 +109,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			if cmd.Bool("shared") && (cmd.Bool("managed") || flagGiven(args, "crush-url")) {
 				return cli.Exit("--shared uses Crush's shared server; remove --managed and --crush-url", exitUsage)
 			}
+			if cmd.IsSet("crush-socket") && !cmd.Bool("shared") {
+				return cli.Exit("--crush-socket and CRUSH_ACP_CRUSH_SOCKET apply only to --shared", exitUsage)
+			}
 			return serve(ctx, logger, serveOptions{
 				crushURL: cmd.String("crush-url"),
 				forceCwd: cmd.String("cwd"),

@@ -110,7 +110,7 @@ Configure the editor to run `crush-acp-bridge` as an ACP agent over stdio. For a
 | Flag | Environment | Description |
 |---|---|---|
 | `--shared` | | Use Crush's per-user shared server, starting it if needed. Conflicts with `--managed` and an explicit `--crush-url`. |
-| `--crush-socket` | `CRUSH_ACP_CRUSH_SOCKET` | The `--shared` server's Unix socket. Defaults to Crush's own. |
+| `--crush-socket` | `CRUSH_ACP_CRUSH_SOCKET` | The `--shared` server's Unix socket. Defaults to Crush's own. Rejected without `--shared`. |
 | `--managed` | | Run `crush server` as a child process. Conflicts with an explicit `--crush-url`. |
 | `--crush-bin` | `CRUSH_ACP_CRUSH_BIN` | The `crush` executable for `--shared` and `--managed`. Defaults to `crush`. |
 | `--listen` | | `host:port` for the `--managed` server. Defaults to a free local port. |

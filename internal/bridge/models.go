@@ -36,7 +36,6 @@ func configOptions(models crush.Models) []acp.SessionConfigOption {
 		return nil
 	}
 
-	current := modelValue(models.Current)
 	choices := make(acp.SessionConfigSelectOptionsUngrouped, 0, len(models.Available)+1)
 	found := false
 	for _, m := range models.Available {
@@ -48,8 +47,12 @@ func configOptions(models crush.Models) []acp.SessionConfigOption {
 		choices = append(choices, choice)
 		found = found || ref == models.Current
 	}
-	if !found && models.Current.Model != "" {
-		// ACP requires the current value to be one of the options.
+	// ACP requires the current value to be one of the options.
+	current := modelValue(models.Current)
+	switch {
+	case models.Current.Model == "":
+		current = choices[0].Value // Crush has no model set; show the first it offers
+	case !found:
 		choices = append(choices, acp.SessionConfigSelectOption{Value: current, Name: models.Current.Model})
 	}
 
@@ -75,7 +78,8 @@ func (a *Agent) sessionConfig(ctx context.Context, backend Backend, sessionID st
 }
 
 // SetSessionConfigOption switches Crush's model. Crush keeps one model per
-// directory, so the change applies to every session there.
+// directory, so the change applies to every session there, and the others
+// are told.
 func (a *Agent) SetSessionConfigOption(ctx context.Context, req acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
 	set := req.ValueId
 	if set == nil || set.ConfigId != modelConfigID {
@@ -108,7 +112,16 @@ func (a *Agent) SetSessionConfigOption(ctx context.Context, req acp.SetSessionCo
 	if err != nil {
 		return acp.SetSessionConfigOptionResponse{}, err
 	}
-	return acp.SetSessionConfigOptionResponse{ConfigOptions: configOptions(models)}, nil
+	opts := configOptions(models)
+	for id := range a.sessionsIn(s.cwd) {
+		if id == string(set.SessionId) {
+			continue
+		}
+		a.send(acp.SessionId(id), acp.SessionUpdate{ConfigOptionUpdate: &acp.SessionConfigOptionUpdate{
+			ConfigOptions: opts, SessionUpdate: "config_option_update",
+		}})
+	}
+	return acp.SetSessionConfigOptionResponse{ConfigOptions: opts}, nil
 }
 
 func offered(models crush.Models, ref crush.ModelRef) bool {

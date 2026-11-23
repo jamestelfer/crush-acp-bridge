@@ -32,9 +32,9 @@ func (w *Workspace) Sessions(ctx context.Context) ([]Session, error) {
 	}
 	out := make([]Session, len(raw))
 	for i, s := range raw {
-		out[i] = Session{
-			ID: s.ID, ParentID: s.ParentID, Title: s.Title,
-			MessageCount: s.MessageCount, UpdatedAt: time.Unix(s.UpdatedAt, 0),
+		out[i] = Session{ID: s.ID, ParentID: s.ParentID, Title: s.Title, MessageCount: s.MessageCount}
+		if s.UpdatedAt != 0 { // unset, not 1970
+			out[i].UpdatedAt = time.Unix(s.UpdatedAt, 0)
 		}
 	}
 	return out, nil

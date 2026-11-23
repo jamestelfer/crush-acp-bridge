@@ -65,3 +65,20 @@ func TestMessagesReportsAMissingSession(t *testing.T) {
 
 	require.ErrorIs(t, err, crush.ErrNotFound)
 }
+
+func TestSessionWithoutAnUpdateTimeHasZeroTime(t *testing.T) {
+	srv := newFakeServer(t, map[string]http.HandlerFunc{
+		"POST /v1/workspaces": func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, map[string]string{"id": "ws1"}) },
+		"GET /v1/workspaces/ws1/sessions": func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, []map[string]any{{"id": "s1", "message_count": 1, "updated_at": 0}})
+		},
+	})
+	ws, err := crush.New(srv.URL).OpenWorkspace(t.Context(), "/work/proj")
+	require.NoError(t, err)
+
+	got, err := ws.Sessions(t.Context())
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.True(t, got[0].UpdatedAt.IsZero(), "not 1970: %v", got[0].UpdatedAt)
+}

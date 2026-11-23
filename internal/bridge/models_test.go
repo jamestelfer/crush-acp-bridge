@@ -3,7 +3,9 @@ package bridge_test
 import (
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/coder/acp-go-sdk"
 	"github.com/gkampitakis/go-snaps/snaps"
@@ -144,4 +146,50 @@ func values(sel *acp.SessionConfigOptionSelect) []acp.SessionConfigValueId {
 		}
 	}
 	return out
+}
+
+func TestUnsetCurrentModelDefaultsToTheFirstOffered(t *testing.T) {
+	backend := withModels(newFakeCrush("sess-1", nil))
+	backend.models.Current = crush.ModelRef{}
+	conn := connect(t, backend, &editor{})
+
+	sel := modelOption(t, openSession(t, conn).ConfigOptions)
+
+	require.Equal(t, acp.SessionConfigValueId("anthropic/claude-sonnet-4-6"), sel.CurrentValue)
+	require.Len(t, values(sel), 3, "no placeholder option is added")
+}
+
+// configUpdates returns the current model each session was told of.
+func (e *editor) configUpdates() map[acp.SessionId][]acp.SessionConfigValueId {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := map[acp.SessionId][]acp.SessionConfigValueId{}
+	for i, u := range e.updates {
+		if u.ConfigOptionUpdate == nil {
+			continue
+		}
+		for _, o := range u.ConfigOptionUpdate.ConfigOptions {
+			if o.Select != nil && o.Select.Id == "model" {
+				out[e.sessions[i]] = append(out[e.sessions[i]], o.Select.CurrentValue)
+			}
+		}
+	}
+	return out
+}
+
+func TestSelectingAModelTellsTheDirectorysOtherSessions(t *testing.T) {
+	backend := withModels(newFakeCrush("", nil))
+	backend.ids = []string{"sess-1", "sess-2"}
+	ed := &editor{}
+	conn := connect(t, backend, ed)
+	first := openSession(t, conn).SessionId
+	second := newSession(t, conn, "/work/proj")
+
+	_, err := setModel(t, conn, first, "anthropic/claude-sonnet-4-6")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return fmt.Sprint(ed.configUpdates()[second]) == "[anthropic/claude-sonnet-4-6]"
+	}, 2*time.Second, 10*time.Millisecond, "Crush has one model per directory, so the other session changed too")
+	require.Empty(t, ed.configUpdates()[first], "the requesting session has the response")
 }

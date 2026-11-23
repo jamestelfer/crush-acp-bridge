@@ -345,3 +345,23 @@ func (b *syncBuffer) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
+
+func TestCrushSocketWithoutSharedIsAUsageError(t *testing.T) {
+	t.Run("flag", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+
+		code := run([]string{"crush-acp-bridge", "--crush-socket", "/tmp/crush.sock"}, strings.NewReader(""), &stdout, &stderr)
+
+		assert.Equal(t, exitUsage, code)
+		assert.Contains(t, stderr.String(), "--shared")
+	})
+	t.Run("environment", func(t *testing.T) {
+		t.Setenv("CRUSH_ACP_CRUSH_SOCKET", "/tmp/crush.sock")
+		var stdout, stderr bytes.Buffer
+
+		code := run([]string{"crush-acp-bridge", "--managed", "--crush-bin", "/no/such/crush"}, strings.NewReader(""), &stdout, &stderr)
+
+		assert.Equal(t, exitUsage, code)
+		assert.Contains(t, stderr.String(), "CRUSH_ACP_CRUSH_SOCKET")
+	})
+}
