@@ -208,6 +208,8 @@ Not supported:
 - Crush question prompts.
 - The shared server on Windows, which uses a named pipe.
 - Image and attachment prompts. Only text blocks are sent.
+- `authenticate`, `logout`, `session/close`, `session/delete` and the unstable `session/set_model`. The bridge
+  advertises none of them, and offers models as a config option instead.
 
 ## Development
 

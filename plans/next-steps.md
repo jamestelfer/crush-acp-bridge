@@ -103,7 +103,13 @@ Notes:
 
 ### 5. Unsupported methods
 
-- [ ] Paseo logs show no unexpected method-not-found errors during a full session.
+- [x] Paseo logs show no unexpected method-not-found errors during a full session. A traced Paseo 0.17.3 session (create, permission allowed, mode and model switch, cancel, archive and send again, `paseo import`, `paseo provider diagnostic crush`) called `initialize`, `session/new`, `session/prompt`, `session/set_mode`, `session/set_config_option`, `session/load` and `session/cancel`. The bridge called `session/update` and `session/request_permission`. No error crossed the wire in either direction.
+
+Notes:
+
+- Paseo's ACP provider can also call `session/list`, `session/resume`, `session/close` and `session/set_model`. Each is gated: `session/list` on `sessionCapabilities.list` (implemented), `session/resume` only without `loadSession`, `session/close` on `sessionCapabilities.close` (not advertised), and `session/set_model` only when `session/new` returns the unstable `models` field, which the bridge leaves out in favour of the model config option. No method-not-found is reachable from Paseo.
+- `session/close` stays unimplemented. Paseo would call it after every probe and import scan, and the bridge holds nothing a closed process does not release.
+- The trace came from a wrapper that teed the bridge's stdio; Paseo keeps an agent's stderr only for diagnostics.
 
 ### Deferred
 
