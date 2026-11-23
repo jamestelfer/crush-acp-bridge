@@ -44,7 +44,7 @@ Ordered ahead of slice 3: without it, a second Crush agent in a directory fails.
 - When nothing answers, the bridge starts a detached `crush server` (new session, output to a log file under the user cache directory, no `--host` for the default socket) and polls `/v1/health`.
 - No start-up lock is needed: a server that finds a live one on its socket exits with "address already in use", and Crush's own `<socket>.lock` guards simultaneous binds and stale-socket removal. The bridge treats its own server exiting as normal while it keeps polling.
 - The idle timeout is left at Crush's default. Each connected bridge holds its workspace open; the server exits 60s after the last client leaves.
-- The bridge sends its environment when it opens a workspace, as Crush clients do, so provider credentials reach a server another client started. The first client to open a path sets its environment.
+- The bridge sends its environment when it opens a workspace on a local server (Unix socket or loopback host), as Crush clients do, so provider credentials reach a server another client started. The first client to open a path sets its environment.
 - `--managed` stays as the fallback, and is the only self-contained mode on Windows until named pipes are supported (`go-winio`).
 - Reconnect: when the event stream ends, the bridge ensures the server again, reopens its workspaces, reports current sessions and resubscribes. A turn in flight ends with an error.
 

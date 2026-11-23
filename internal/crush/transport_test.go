@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jamestelfer/crush-acp-bridge/internal/crush"
@@ -44,4 +45,22 @@ func TestOpenWorkspaceSendsTheBridgesEnvironment(t *testing.T) {
 	require.True(t, ok, "env is a list of KEY=value strings, as Crush clients send")
 	require.Contains(t, env, "VERTEXAI_PROJECT=proj-from-bridge",
 		"provider credentials must reach a server another client started")
+}
+
+func TestEnvironmentGoesOnlyToALocalServer(t *testing.T) {
+	for url, local := range map[string]bool{
+		"unix:///run/user/1000/crush-1000.sock": true,
+		"http://127.0.0.1:8484":                 true,
+		"http://127.1.2.3:8484":                 true,
+		"http://localhost:8484":                 true,
+		"http://LocalHost:8484/":                true,
+		"http://[::1]:8484":                     true,
+		"http://192.168.1.20:8484":              false,
+		"http://build-box:8484":                 false,
+		"https://crush.example.com":             false,
+		"http://[2001:db8::1]:8484":             false,
+		"not a url\x7f":                         false,
+	} {
+		assert.Equal(t, local, crush.IsLocal(url), url)
+	}
 }

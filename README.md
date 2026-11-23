@@ -52,9 +52,10 @@ crush-acp-bridge --shared
 - `crush` must be on `PATH`, or pass `--crush-bin`.
 - Not available on Windows yet. Use `--managed` there.
 
-The bridge sends its environment when it opens a project, as Crush clients do. Set provider variables
-such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` on the bridge. The first client to open a project sets
-its environment for every later client.
+The bridge sends its environment when it opens a project on a local server, as Crush clients do: a Unix
+socket, or a `--crush-url` whose host is `localhost` or a loopback address. A server on another machine
+receives no environment. Set provider variables such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` on the
+bridge. The first client to open a project sets its environment for every later client.
 
 ### Self-contained: one server per bridge
 

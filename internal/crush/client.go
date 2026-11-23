@@ -20,8 +20,9 @@ import (
 
 // Client talks to a Crush server over HTTP.
 type Client struct {
-	base string
-	http *http.Client
+	base  string
+	http  *http.Client
+	local bool // the server runs on this machine, so it may see the environment
 }
 
 // New returns a Client for the server at baseURL: an HTTP URL such as
@@ -35,9 +36,27 @@ func New(baseURL string) *Client {
 				return d.DialContext(ctx, "unix", sock)
 			},
 		}
-		return &Client{base: "http://crush/v1", http: &http.Client{Transport: transport}}
+		return &Client{base: "http://crush/v1", http: &http.Client{Transport: transport}, local: true}
 	}
-	return &Client{base: strings.TrimRight(baseURL, "/") + "/v1", http: &http.Client{}}
+	return &Client{base: strings.TrimRight(baseURL, "/") + "/v1", http: &http.Client{}, local: isLocal(baseURL)}
+}
+
+// isLocal reports whether baseURL names a server on this machine: a Unix
+// socket, or an HTTP host that is localhost or a loopback address.
+func isLocal(baseURL string) bool {
+	if strings.HasPrefix(baseURL, "unix://") {
+		return true
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // Workspace is a project registered with the server by this client.
@@ -61,12 +80,16 @@ func (c *Client) OpenWorkspace(ctx context.Context, path string) (*Workspace, er
 		ID string `json:"id"`
 	}
 	// Crush clients send their environment: the server resolves provider
-	// credentials from it, and may have been started by another client.
+	// credentials from it, and may have been started by another client. It
+	// holds secrets, so a server on another machine does not receive it.
 	body := struct {
 		Path     string   `json:"path"`
 		ClientID string   `json:"client_id"`
-		Env      []string `json:"env"`
-	}{path, clientID, os.Environ()}
+		Env      []string `json:"env,omitempty"`
+	}{Path: path, ClientID: clientID}
+	if c.local {
+		body.Env = os.Environ()
+	}
 	if err := c.do(ctx, http.MethodPost, "/workspaces", body, &out); err != nil {
 		return nil, fmt.Errorf("open workspace: %w", err)
 	}
