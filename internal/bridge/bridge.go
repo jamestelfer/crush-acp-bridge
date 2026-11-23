@@ -27,6 +27,8 @@ type Backend interface {
 	Cancel(ctx context.Context, sessionID string) error
 	Grant(ctx context.Context, permission jsontext.Value, action crush.Action) error
 	Events(ctx context.Context) (<-chan []byte, error)
+	Models(ctx context.Context) (crush.Models, error)
+	SetModel(ctx context.Context, m crush.ModelRef) error
 }
 
 var _ Backend = (*crush.Workspace)(nil)
@@ -143,7 +145,7 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	a.sessions[id] = &session{backend: backend, turn: make(chan acp.StopReason, 1)}
 	a.mu.Unlock()
 	a.log.Info("session created", "session_id", id, "cwd", req.Cwd)
-	return acp.NewSessionResponse{SessionId: acp.SessionId(id)}, nil
+	return acp.NewSessionResponse{SessionId: acp.SessionId(id), ConfigOptions: a.sessionConfig(ctx, backend, id)}, nil
 }
 
 // Prompt runs one turn and returns when Crush reports it finished.

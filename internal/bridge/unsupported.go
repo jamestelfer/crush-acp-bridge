@@ -34,10 +34,6 @@ func (unsupported) ResumeSession(context.Context, acp.ResumeSessionRequest) (acp
 	return acp.ResumeSessionResponse{}, acp.NewMethodNotFound("session/resume")
 }
 
-func (unsupported) SetSessionConfigOption(context.Context, acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
-	return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound("session/set_config_option")
-}
-
 func (unsupported) SetSessionMode(context.Context, acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
 	return acp.SetSessionModeResponse{}, acp.NewMethodNotFound("session/set_mode")
 }

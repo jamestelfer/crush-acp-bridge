@@ -88,11 +88,28 @@ type fakeCrush struct {
 	onCancel  trace // replayed when the session is cancelled
 	events    chan []byte
 
-	mu       sync.Mutex
-	prompts  []string
-	cancels  []string
-	grants   []grant
-	grantErr error
+	mu        sync.Mutex
+	prompts   []string
+	cancels   []string
+	grants    []grant
+	grantErr  error
+	models    crush.Models
+	modelsErr error
+	setModels []crush.ModelRef
+}
+
+func (f *fakeCrush) Models(context.Context) (crush.Models, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.models, f.modelsErr
+}
+
+func (f *fakeCrush) SetModel(_ context.Context, m crush.ModelRef) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setModels = append(f.setModels, m)
+	f.models.Current = m
+	return nil
 }
 
 type grant struct {
