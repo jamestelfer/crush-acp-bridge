@@ -27,3 +27,7 @@ lint:
 # Cross-platform snapshot build for every release matrix target (via goreleaser)
 xbuild *args:
     goreleaser build --snapshot --clean {{args}}
+
+# Drive the built binary against a running crush server (needs CRUSH_ACP_URL and LIVE_CWD)
+live: build
+    go test -tags live -count=1 -v ./internal/live/
