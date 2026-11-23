@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/jamestelfer/crush-acp-bridge/internal/crush"
 )
 
 // SharedOptions configures EnsureShared.
@@ -71,7 +71,8 @@ func EnsureShared(ctx context.Context, opts SharedOptions) error {
 	if socket == "" {
 		return ErrSharedUnsupported
 	}
-	if healthy(ctx, socket) {
+	client := crush.New("unix://" + socket)
+	if ping(ctx, client) {
 		log.Debug("shared crush server found", "socket", socket)
 		return nil
 	}
@@ -92,36 +93,12 @@ func EnsureShared(ctx context.Context, opts SharedOptions) error {
 	log.Info("shared crush server started", "binary", binary, "socket", socket, "pid", pid, "log", logFile)
 
 	timeout := cmp.Or(opts.StartTimeout, defaultStartTimeout)
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	for !healthy(waitCtx, socket) {
-		select {
-		case <-waitCtx.Done():
-			return fmt.Errorf("shared crush server not ready on %s after %s; see %s", socket, timeout, logFile)
-		case <-time.After(50 * time.Millisecond):
-		}
+	// The started server may exit when another bridge's server binds the
+	// socket first, so only the socket is watched.
+	if err := pollHealthy(ctx, client, timeout, nil); err != nil {
+		return fmt.Errorf("shared crush server not ready on %s after %s; see %s", socket, timeout, logFile)
 	}
 	return nil
-}
-
-// healthy reports whether a Crush server answers on socket.
-func healthy(ctx context.Context, socket string) bool {
-	var d net.Dialer
-	client := http.Client{Timeout: time.Second, Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return d.DialContext(ctx, "unix", socket)
-		},
-	}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://crush/v1/health", nil)
-	if err != nil {
-		return false
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
 }
 
 func sharedLogFile(path string) (string, error) {

@@ -3,6 +3,7 @@ package bridge
 import (
 	"cmp"
 	"context"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"slices"
@@ -20,15 +21,12 @@ var _ acp.AgentLoader = (*Agent)(nil)
 // the editor as session updates, before answering.
 func (a *Agent) LoadSession(ctx context.Context, req acp.LoadSessionRequest) (acp.LoadSessionResponse, error) {
 	sid := string(req.SessionId)
-	backend, err := a.stored(ctx, req.Cwd, sid)
-	if err != nil {
-		return acp.LoadSessionResponse{}, err
-	}
-	messages, err := backend.Messages(ctx, sid)
-	if err != nil {
-		return acp.LoadSessionResponse{}, err
-	}
-	modes, err := a.attach(ctx, backend, sid, req.Cwd)
+	var messages []jsontext.Value
+	reopened, err := a.reopen(ctx, req.Cwd, sid, func(backend Backend) error {
+		var err error
+		messages, err = backend.Messages(ctx, sid)
+		return err
+	})
 	if err != nil {
 		return acp.LoadSessionResponse{}, err
 	}
@@ -47,28 +45,43 @@ func (a *Agent) LoadSession(ctx context.Context, req acp.LoadSessionRequest) (ac
 		}
 	}
 	a.log.Info("session loaded", "session_id", sid, "cwd", req.Cwd, "messages", len(messages))
-	return acp.LoadSessionResponse{
-		ConfigOptions: a.sessionConfig(ctx, backend, sid),
-		Modes:         modes,
-	}, nil
+	return acp.LoadSessionResponse{ConfigOptions: reopened.config, Modes: reopened.modes}, nil
 }
 
 // ResumeSession attaches to a stored Crush session without replaying it.
 func (a *Agent) ResumeSession(ctx context.Context, req acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
-	sid := string(req.SessionId)
-	backend, err := a.stored(ctx, req.Cwd, sid)
+	reopened, err := a.reopen(ctx, req.Cwd, string(req.SessionId), nil)
 	if err != nil {
 		return acp.ResumeSessionResponse{}, err
 	}
-	modes, err := a.attach(ctx, backend, sid, req.Cwd)
+	a.log.Info("session resumed", "session_id", string(req.SessionId), "cwd", req.Cwd)
+	return acp.ResumeSessionResponse{ConfigOptions: reopened.config, Modes: reopened.modes}, nil
+}
+
+// reopened is the state an editor receives for a stored session it attaches
+// to.
+type reopened struct {
+	config []acp.SessionConfigOption
+	modes  *acp.SessionModeState
+}
+
+// reopen checks that Crush has the stored session, runs before (when set)
+// against its backend, and then attaches to it.
+func (a *Agent) reopen(ctx context.Context, cwd, sid string, before func(Backend) error) (reopened, error) {
+	backend, err := a.stored(ctx, cwd, sid)
 	if err != nil {
-		return acp.ResumeSessionResponse{}, err
+		return reopened{}, err
 	}
-	a.log.Info("session resumed", "session_id", sid, "cwd", req.Cwd)
-	return acp.ResumeSessionResponse{
-		ConfigOptions: a.sessionConfig(ctx, backend, sid),
-		Modes:         modes,
-	}, nil
+	if before != nil {
+		if err := before(backend); err != nil {
+			return reopened{}, err
+		}
+	}
+	modes, err := a.attach(ctx, backend, sid, cwd)
+	if err != nil {
+		return reopened{}, err
+	}
+	return reopened{config: a.sessionConfig(ctx, backend, sid), modes: modes}, nil
 }
 
 // stored returns the backend for cwd after checking that Crush has the

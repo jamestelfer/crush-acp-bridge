@@ -47,32 +47,29 @@ func (a *Agent) SetSessionMode(ctx context.Context, req acp.SetSessionModeReques
 			"error": fmt.Sprintf("crush has no %q mode", req.ModeId),
 		})
 	}
-	s := a.session(string(req.SessionId))
-	if s == nil {
-		return acp.SetSessionModeResponse{}, fmt.Errorf("unknown session %q", req.SessionId)
+	s, err := a.lookup(req.SessionId)
+	if err != nil {
+		return acp.SetSessionModeResponse{}, err
 	}
 
-	if err := s.backend().SetMainAgent(ctx, string(req.ModeId)); err != nil {
+	if err := a.backend(s.cwd).SetMainAgent(ctx, string(req.ModeId)); err != nil {
 		a.log.Warn("mode change failed", "session_id", string(req.SessionId), "mode", string(req.ModeId), "error", err)
 		if errors.Is(err, crush.ErrBusy) {
-			return acp.SetSessionModeResponse{}, acp.NewRequestError(-32603, "crush is busy; change mode when the turn ends", nil)
+			return acp.SetSessionModeResponse{}, internalError("crush is busy; change mode when the turn ends")
 		}
 		return acp.SetSessionModeResponse{}, err
 	}
 
 	a.mu.Lock()
 	a.modes[s.cwd] = req.ModeId
-	var others []acp.SessionId
-	for id, other := range a.sessions {
-		if other.cwd == s.cwd && id != string(req.SessionId) {
-			others = append(others, acp.SessionId(id))
-		}
-	}
 	a.mu.Unlock()
 	a.log.Info("mode changed", "session_id", string(req.SessionId), "mode", string(req.ModeId), "cwd", s.cwd)
 
-	for _, id := range others {
-		a.send(id, acp.SessionUpdate{CurrentModeUpdate: &acp.SessionCurrentModeUpdate{
+	for id := range a.sessionsIn(s.cwd) {
+		if id == string(req.SessionId) {
+			continue
+		}
+		a.send(acp.SessionId(id), acp.SessionUpdate{CurrentModeUpdate: &acp.SessionCurrentModeUpdate{
 			CurrentModeId: req.ModeId, SessionUpdate: "current_mode_update",
 		}})
 	}

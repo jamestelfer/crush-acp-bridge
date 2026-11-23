@@ -9,17 +9,19 @@ import (
 	"bufio"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/jamestelfer/crush-acp-bridge/internal/crush"
 )
 
 // Options configures Start.
@@ -121,9 +123,13 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		log.Info("crush server exited", "error", err)
 	}()
 
-	if err := s.waitHealthy(ctx, timeout); err != nil {
+	switch err := pollHealthy(ctx, crush.New(s.url), timeout, s.done); {
+	case errors.Is(err, errExited):
 		_ = s.Stop()
-		return nil, err
+		return nil, fmt.Errorf("crush server exited before it was ready: %s", s.outputTail())
+	case err != nil:
+		_ = s.Stop()
+		return nil, fmt.Errorf("crush server not ready after %s: %s", timeout, s.outputTail())
 	}
 	return s, nil
 }
@@ -136,32 +142,34 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func (s *Server) waitHealthy(ctx context.Context, timeout time.Duration) error {
+// errExited reports that a server being polled exited.
+var errExited = errors.New("crush server exited")
+
+// pollInterval is how often pollHealthy asks a starting server for its health.
+const pollInterval = 50 * time.Millisecond
+
+// pollHealthy asks c for its health until it answers, timeout passes, ctx
+// ends, or exited is closed (errExited). A nil exited is never closed.
+func pollHealthy(ctx context.Context, c *crush.Client, timeout time.Duration, exited <-chan struct{}) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	client := http.Client{Timeout: time.Second}
-
-	for {
+	for !ping(ctx, c) {
 		select {
-		case <-s.done:
-			return fmt.Errorf("crush server exited before it was ready: %s", s.outputTail())
+		case <-exited:
+			return errExited
 		case <-ctx.Done():
-			return fmt.Errorf("crush server not ready after %s: %s", timeout, s.outputTail())
-		case <-time.After(50 * time.Millisecond):
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url+"/v1/health", nil)
-		if err != nil {
-			return err
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-		_ = resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			return nil
+			return ctx.Err()
+		case <-time.After(pollInterval):
 		}
 	}
+	return nil
+}
+
+// ping reports whether c's server answers a health check within a second.
+func ping(ctx context.Context, c *crush.Client) bool {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	return c.Ping(ctx) == nil
 }
 
 // consume logs the child's output and keeps the last lines for errors.

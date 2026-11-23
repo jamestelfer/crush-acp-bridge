@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -40,11 +41,7 @@ func configOptions(models crush.Models) []acp.SessionConfigOption {
 	found := false
 	for _, m := range models.Available {
 		ref := crush.ModelRef{Provider: m.Provider, Model: m.ID}
-		name := m.Name
-		if name == "" {
-			name = m.ID
-		}
-		choice := acp.SessionConfigSelectOption{Value: modelValue(ref), Name: name}
+		choice := acp.SessionConfigSelectOption{Value: modelValue(ref), Name: cmp.Or(m.Name, m.ID)}
 		if m.ProviderName != "" {
 			choice.Description = &m.ProviderName
 		}
@@ -84,12 +81,13 @@ func (a *Agent) SetSessionConfigOption(ctx context.Context, req acp.SetSessionCo
 	if set == nil || set.ConfigId != modelConfigID {
 		return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(map[string]string{"error": "only the model option can be set"})
 	}
-	s := a.session(string(set.SessionId))
-	if s == nil {
-		return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("unknown session %q", set.SessionId)
+	s, err := a.lookup(set.SessionId)
+	if err != nil {
+		return acp.SetSessionConfigOptionResponse{}, err
 	}
+	be := a.backend(s.cwd)
 
-	models, err := s.backend().Models(ctx)
+	models, err := be.Models(ctx)
 	if err != nil {
 		return acp.SetSessionConfigOptionResponse{}, err
 	}
@@ -100,13 +98,13 @@ func (a *Agent) SetSessionConfigOption(ctx context.Context, req acp.SetSessionCo
 		})
 	}
 
-	if err := s.backend().SetModel(ctx, ref); err != nil {
+	if err := be.SetModel(ctx, ref); err != nil {
 		a.log.Error("model change failed", "session_id", string(set.SessionId), "model", string(set.Value), "error", err)
 		return acp.SetSessionConfigOptionResponse{}, err
 	}
 	a.log.Info("model changed", "session_id", string(set.SessionId), "model", string(set.Value))
 
-	models, err = s.backend().Models(ctx)
+	models, err = be.Models(ctx)
 	if err != nil {
 		return acp.SetSessionConfigOptionResponse{}, err
 	}
