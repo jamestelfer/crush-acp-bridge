@@ -275,3 +275,46 @@ func TestPermissionRequestCarriesTheToolsParameters(t *testing.T) {
 		"working_dir": "", "run_in_background": false, "auto_background_after": 0
 	}`, string(perm.RawParams))
 }
+
+// finished returns the ToolCallFinished updates of a trace, by tool call ID.
+func finished(t *testing.T, name string) map[string]translate.Update {
+	t.Helper()
+
+	tr := translate.New()
+	out := map[string]translate.Update{}
+	for _, data := range replay(t, name) {
+		updates, err := tr.Feed(data)
+		require.NoError(t, err)
+		for _, u := range updates {
+			if u.Kind == translate.ToolCallFinished {
+				out[u.ToolCallID] = u
+			}
+		}
+	}
+	return out
+}
+
+func TestFinishedToolCallCarriesItsInputAndResultMetadata(t *testing.T) {
+	edit := finished(t, "edit-permission.sse")["call_16713861530277631741"]
+
+	require.Equal(t, "edit", edit.ToolName)
+	require.JSONEq(t, `{
+		"file_path": "/tmp/crushlive/diffproj/greek.txt",
+		"old_string": "alpha\nbeta\ngamma", "new_string": "alpha\nBETA\ngamma"
+	}`, string(edit.RawInput))
+	require.JSONEq(t, `{
+		"additions": 1, "removals": 1,
+		"old_content": "alpha\nbeta\ngamma\ndelta\n", "new_content": "alpha\nBETA\ngamma\ndelta\n"
+	}`, string(edit.Metadata))
+}
+
+func TestFinishedToolCallCarriesItsPermissionParameters(t *testing.T) {
+	calls := finished(t, "write-permission.sse")
+
+	asked := calls["call_8171991326521080277"]
+	require.JSONEq(t,
+		`{"file_path": "/tmp/crushlive/diffproj/notes.txt", "new_content": "one\ntwo\n"}`,
+		string(asked.RawParams))
+	unasked := calls["call_9574960797699994523"]
+	require.Empty(t, unasked.RawParams, "Crush did not ask about the second write")
+}

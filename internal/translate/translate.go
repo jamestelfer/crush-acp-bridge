@@ -59,18 +59,26 @@ type Update struct {
 	MessageID string
 	Text      string
 
-	// Tool call fields, set for ToolCallStarted and ToolCallFinished.
+	// Tool call fields, set for ToolCallStarted, ToolCallInput and
+	// ToolCallFinished.
 	ToolCallID string
 	ToolName   string
 	Output     string
 	IsError    bool
-	RawInput   jsontext.Value // ToolCallInput: the tool's JSON arguments
+	// RawInput is the tool's JSON arguments: set for ToolCallInput, and for
+	// ToolCallFinished when the call's input was seen.
+	RawInput jsontext.Value
+	// Metadata is the tool result's JSON metadata, set for ToolCallFinished.
+	// Edit tools record the file's content before and after in it.
+	Metadata jsontext.Value
 
 	// Permission fields, set for PermissionRequested.
 	PermissionID  string
 	Description   string
 	RawPermission jsontext.Value // the request as sent; echoed back to grant it
-	RawParams     jsontext.Value // the tool's parameters, as shown in the request
+	// RawParams is the tool's parameters as shown in a permission request: set
+	// for PermissionRequested, and for ToolCallFinished when Crush asked.
+	RawParams jsontext.Value
 
 	// StopReason is set for TurnEnded: end_turn, cancelled, max_tokens or error.
 	StopReason string
@@ -85,7 +93,11 @@ type Translator struct {
 	startedTool map[string]bool
 	inputTool   map[string]bool
 	doneTool    map[string]bool
-	ended       map[string]bool
+	// input and params hold a running call's input and permission
+	// parameters until its result arrives.
+	input  map[string]jsontext.Value
+	params map[string]jsontext.Value
+	ended  map[string]bool
 }
 
 // New returns a Translator with no history.
@@ -97,6 +109,8 @@ func New() *Translator {
 		startedTool: map[string]bool{},
 		inputTool:   map[string]bool{},
 		doneTool:    map[string]bool{},
+		input:       map[string]jsontext.Value{},
+		params:      map[string]jsontext.Value{},
 		ended:       map[string]bool{},
 	}
 }
@@ -231,6 +245,7 @@ func (t *Translator) toolCall(data jsontext.Value) ([]Update, error) {
 	}
 	if d.Finished && d.Input != "" && !t.inputTool[d.ID] {
 		t.inputTool[d.ID] = true
+		t.input[d.ID] = jsontext.Value(d.Input)
 		updates = append(updates, Update{
 			Kind: ToolCallInput, ToolCallID: d.ID, ToolName: d.Name, RawInput: jsontext.Value(d.Input),
 		})
@@ -243,6 +258,7 @@ func (t *Translator) toolResult(data jsontext.Value) ([]Update, error) {
 		ToolCallID string `json:"tool_call_id"`
 		Name       string `json:"name"`
 		Content    string `json:"content"`
+		Metadata   string `json:"metadata"`
 		IsError    bool   `json:"is_error"`
 	}
 	if err := json.Unmarshal(data, &d); err != nil {
@@ -252,10 +268,19 @@ func (t *Translator) toolResult(data jsontext.Value) ([]Update, error) {
 		return nil, nil
 	}
 	t.doneTool[d.ToolCallID] = true
-	return []Update{{
+
+	u := Update{
 		Kind: ToolCallFinished, ToolCallID: d.ToolCallID, ToolName: d.Name,
 		Output: d.Content, IsError: d.IsError,
-	}}, nil
+		RawInput: t.input[d.ToolCallID], RawParams: t.params[d.ToolCallID],
+	}
+	delete(t.input, d.ToolCallID)
+	delete(t.params, d.ToolCallID)
+	// Crush stores the metadata as a JSON document inside a string.
+	if meta := jsontext.Value(d.Metadata); meta.IsValid() && len(meta) > 0 {
+		u.Metadata = meta
+	}
+	return []Update{u}, nil
 }
 
 func (t *Translator) finish(msgID string, data jsontext.Value) ([]Update, error) {
@@ -287,6 +312,9 @@ func (t *Translator) permission(raw jsontext.Value) ([]Update, error) {
 	}
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return nil, fmt.Errorf("decode permission request: %w", err)
+	}
+	if len(d.Params) > 0 && !t.doneTool[d.ToolCallID] {
+		t.params[d.ToolCallID] = d.Params
 	}
 	return []Update{{
 		Kind: PermissionRequested, SessionID: d.SessionID, PermissionID: d.ID, ToolCallID: d.ToolCallID,

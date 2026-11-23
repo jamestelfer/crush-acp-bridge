@@ -26,6 +26,8 @@ type updateView struct {
 	PermissionID  string         `json:"permission_id,omitzero"`
 	Description   string         `json:"description,omitzero"`
 	RawPermission jsontext.Value `json:"raw_permission,omitzero"`
+	RawParams     jsontext.Value `json:"raw_params,omitzero"`
+	Metadata      jsontext.Value `json:"metadata,omitzero"`
 	StopReason    string         `json:"stop_reason,omitzero"`
 }
 
@@ -44,7 +46,8 @@ func streamOf(t *testing.T, name string) []byte {
 				Kind: u.Kind.String(), SessionID: u.SessionID, MessageID: u.MessageID, Text: u.Text,
 				ToolCallID: u.ToolCallID, ToolName: u.ToolName, RawInput: u.RawInput,
 				Output: u.Output, IsError: u.IsError, PermissionID: u.PermissionID,
-				Description: u.Description, RawPermission: u.RawPermission, StopReason: u.StopReason,
+				Description: u.Description, RawPermission: u.RawPermission, RawParams: u.RawParams, Metadata: u.Metadata,
+				StopReason: u.StopReason,
 			})
 		}
 	}
@@ -59,4 +62,12 @@ func TestUpdateStreamForToolAndPermissionTurn(t *testing.T) {
 
 func TestUpdateStreamForStreamedAndCancelledTurns(t *testing.T) {
 	snaps.MatchJSON(t, streamOf(t, "long-text-cancel.sse"))
+}
+
+func TestUpdateStreamForEditTurn(t *testing.T) {
+	snaps.MatchJSON(t, streamOf(t, "edit-permission.sse"))
+}
+
+func TestUpdateStreamForWriteTurn(t *testing.T) {
+	snaps.MatchJSON(t, streamOf(t, "write-permission.sse"))
 }

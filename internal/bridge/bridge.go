@@ -534,25 +534,39 @@ func (a *Agent) forward(u *translate.Update) {
 		))
 	case translate.ToolCallInput:
 		title, locs := describeTool(u.ToolName, u.RawInput)
-		a.send(sid, acp.UpdateToolCall(
-			acp.ToolCallId(u.ToolCallID),
+		opts := []acp.ToolCallUpdateOpt{
 			acp.WithUpdateTitle(title),
 			acp.WithUpdateLocations(locs),
 			acp.WithUpdateRawInput(u.RawInput),
-		))
+		}
+		if d := inputDiffs(u.ToolName, s.cwd, u.RawInput); d != nil {
+			opts = append(opts, acp.WithUpdateContent(d))
+		}
+		a.send(sid, acp.UpdateToolCall(acp.ToolCallId(u.ToolCallID), opts...))
 	case translate.ToolCallFinished:
 		status := acp.ToolCallStatusCompleted
+		content := []acp.ToolCallContent{acp.ToolContent(acp.TextBlock(u.Output))}
 		if u.IsError {
 			status = acp.ToolCallStatusFailed
+		} else if d := resultDiffs(u.ToolName, s.cwd, u.RawInput, u.RawParams, u.Metadata); d != nil {
+			// Paseo reads an edit's text content as a unified diff, so the
+			// diff replaces Crush's confirmation message.
+			content = d
 		}
 		a.send(sid, acp.UpdateToolCall(
 			acp.ToolCallId(u.ToolCallID),
 			acp.WithUpdateStatus(status),
-			acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(u.Output))}),
+			acp.WithUpdateContent(content),
 		))
 	case translate.PermissionRequested:
+		diffs := permissionDiffs(u.ToolName, s.cwd, u.RawParams)
+		if diffs != nil {
+			// Paseo shows the tool call as it already holds it, not the copy
+			// in the request, so the diff goes to the tool call first.
+			a.send(sid, acp.UpdateToolCall(acp.ToolCallId(u.ToolCallID), acp.WithUpdateContent(diffs)))
+		}
 		// The editor may take minutes to answer; do not stall the event loop.
-		go a.askPermission(a.backend(s.cwd), *u)
+		go a.askPermission(a.backend(s.cwd), *u, diffs)
 	case translate.TurnEnded:
 		s.end(turnEnd{reason: acp.StopReason(u.StopReason)})
 	}
@@ -560,7 +574,8 @@ func (a *Agent) forward(u *translate.Update) {
 
 // askPermission relays a Crush permission request to the editor and sends the
 // decision back. Anything other than an explicit allow denies the request.
-func (a *Agent) askPermission(backend Backend, u translate.Update) {
+// diffs, when set, shows the change an edit tool will make.
+func (a *Agent) askPermission(backend Backend, u translate.Update, diffs []acp.ToolCallContent) {
 	const (
 		allowOnce   acp.PermissionOptionId = "allow_once"
 		allowAlways acp.PermissionOptionId = "allow_always"
@@ -571,6 +586,10 @@ func (a *Agent) askPermission(backend Backend, u translate.Update) {
 	if title == "" {
 		title = u.ToolName
 	}
+	content := diffs
+	if content == nil {
+		content = []acp.ToolCallContent{acp.ToolContent(acp.TextBlock(permissionSummary(u.RawParams, title)))}
+	}
 	resp, err := a.conn.RequestPermission(a.serveCtx, acp.RequestPermissionRequest{
 		SessionId: acp.SessionId(u.SessionID),
 		ToolCall: acp.ToolCallUpdate{
@@ -579,9 +598,7 @@ func (a *Agent) askPermission(backend Backend, u translate.Update) {
 			Kind:       acp.PatchSet(toolKind(u.ToolName)),
 			Status:     acp.PatchSet(acp.ToolCallStatusPending),
 			RawInput:   rawPatch(acp.ToolCallUpdate{}.RawInput, u.RawParams),
-			Content: acp.PatchSet([]acp.ToolCallContent{
-				acp.ToolContent(acp.TextBlock(permissionSummary(u.RawParams, title))),
-			}),
+			Content:    acp.PatchSet(content),
 		},
 		Options: []acp.PermissionOption{
 			{OptionId: allowOnce, Name: "Allow", Kind: acp.PermissionOptionKindAllowOnce},
