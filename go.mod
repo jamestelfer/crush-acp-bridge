@@ -3,10 +3,12 @@ module github.com/jamestelfer/crush-acp-bridge
 go 1.27
 
 require (
+	github.com/Microsoft/go-winio v0.6.4
 	github.com/coder/acp-go-sdk v0.20.0
 	github.com/gkampitakis/go-snaps v0.5.26
 	github.com/stretchr/testify v1.12.1
 	github.com/urfave/cli/v3 v3.14.0
+	golang.org/x/sys v0.49.0
 )
 
 require (

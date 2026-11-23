@@ -26,25 +26,34 @@ type Client struct {
 }
 
 // New returns a Client for the server at baseURL: an HTTP URL such as
-// "http://127.0.0.1:8484", or "unix:///path/to/crush.sock" for a server on a
-// Unix socket, as Crush's default shared server is.
+// "http://127.0.0.1:8484", "unix:///path/to/crush.sock" for a server on a
+// Unix socket, or "npipe:////./pipe/name" for one on a Windows named pipe.
+// Crush's default shared server uses the socket, or the pipe on Windows; the
+// schemes are Crush's own. A pipe URL fails on other platforms.
 func New(baseURL string) *Client {
 	if sock, ok := strings.CutPrefix(baseURL, "unix://"); ok {
 		var d net.Dialer
-		transport := &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return d.DialContext(ctx, "unix", sock)
-			},
-		}
-		return &Client{base: "http://crush/v1", http: &http.Client{Transport: transport}, local: true}
+		return localClient(func(ctx context.Context) (net.Conn, error) { return d.DialContext(ctx, "unix", sock) })
+	}
+	if pipe, ok := strings.CutPrefix(baseURL, "npipe://"); ok {
+		return localClient(func(ctx context.Context) (net.Conn, error) { return dialPipe(ctx, pipe) })
 	}
 	return &Client{base: strings.TrimRight(baseURL, "/") + "/v1", http: &http.Client{}, local: isLocal(baseURL)}
 }
 
+// localClient returns a Client whose every connection comes from dial.
+func localClient(dial func(context.Context) (net.Conn, error)) *Client {
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dial(ctx) },
+	}
+	return &Client{base: "http://crush/v1", http: &http.Client{Transport: transport}, local: true}
+}
+
 // isLocal reports whether baseURL names a server on this machine: a Unix
-// socket, or an HTTP host that is localhost or a loopback address.
+// socket, a named pipe, or an HTTP host that is localhost or a loopback
+// address.
 func isLocal(baseURL string) bool {
-	if strings.HasPrefix(baseURL, "unix://") {
+	if strings.HasPrefix(baseURL, "unix://") || strings.HasPrefix(baseURL, "npipe://") {
 		return true
 	}
 	u, err := url.Parse(baseURL)

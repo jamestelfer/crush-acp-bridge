@@ -50,6 +50,7 @@ func TestOpenWorkspaceSendsTheBridgesEnvironment(t *testing.T) {
 func TestEnvironmentGoesOnlyToALocalServer(t *testing.T) {
 	for url, local := range map[string]bool{
 		"unix:///run/user/1000/crush-1000.sock": true,
+		"npipe:////./pipe/crush-S-1-5-21.sock":  true,
 		"http://127.0.0.1:8484":                 true,
 		"http://127.1.2.3:8484":                 true,
 		"http://localhost:8484":                 true,
