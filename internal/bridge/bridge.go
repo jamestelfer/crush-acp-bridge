@@ -355,12 +355,21 @@ func (a *Agent) openWorkspace(ctx context.Context, cwd string, w *workspace) {
 	go a.follow(events, cwd)
 }
 
-// connect opens cwd and subscribes to its events, which last until the bridge
-// stops.
+// connect opens cwd, restores the mode the bridge set there, and subscribes
+// to its events, which last until the bridge stops. A server that restarted
+// is back on coder, so the editor's mode would otherwise be wrong.
 func (a *Agent) connect(ctx context.Context, cwd string) (Backend, <-chan []byte, error) {
 	b, err := a.open(ctx, cwd)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open %s: %w", cwd, err)
+	}
+	a.mu.Lock()
+	mode, ok := a.modes[cwd]
+	a.mu.Unlock()
+	if ok {
+		if err := b.SetMainAgent(ctx, string(mode)); err != nil {
+			return nil, nil, fmt.Errorf("restore mode %s in %s: %w", mode, cwd, err)
+		}
 	}
 	events, err := b.Events(a.serveCtx)
 	if err != nil {

@@ -95,3 +95,22 @@ func TestModeChangeDuringATurnFailsAndKeepsTheMode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, acp.SessionModeId("coder"), next.Modes.CurrentModeId)
 }
+
+func (f *fakeCrush) agentsSet() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.agents...)
+}
+
+func TestReconnectRestoresTheModeOnTheServer(t *testing.T) {
+	backend := newFakeCrush("sess-1", nil)
+	conn := connect(t, backend, &editor{})
+	sid := openSession(t, conn).SessionId
+	require.NoError(t, setMode(t, conn, sid, "plan"))
+
+	backend.drop() // a restarted server starts on coder
+
+	require.Eventually(t, func() bool {
+		return fmt.Sprint(backend.agentsSet()) == "[plan plan]"
+	}, 5*time.Second, 10*time.Millisecond, "the bridge sets plan again, so the reported mode is the real one")
+}
