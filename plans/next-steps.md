@@ -19,10 +19,18 @@ Progress tracker for the work after the spike. Update the checkboxes and the log
 
 Paseo shows model `-` today. The bridge advertises Crush's models.
 
-- [ ] A bridge test asserts that `session/new` returns the model list and the current model.
-- [ ] Selecting a model from the editor changes Crush's model, covered by a test.
-- [ ] Paseo's agent view shows the real model name instead of `-` (live).
-- [ ] `just verify` passes.
+- [x] A bridge test asserts that `session/new` returns the model list and the current model.
+- [x] Selecting a model from the editor changes Crush's model, covered by a test.
+- [x] Live: `TestLiveModelSwitch` switches the model and Crush answers with it.
+- [x] Live: `paseo provider models crush` lists the Vertex models, with the current one as default.
+- [x] Paseo's agent view shows the real model name instead of `-` (live): agent runtime reports `vertexai/gemini-3.1-pro-preview`.
+- [x] `just verify` passes.
+- [ ] Modes: Crush's `coder`/`plan` agents (`POST /agent/main`) as an ACP mode selector. Crush exposes no read of the current agent, so this needs a closer look.
+
+Notes:
+
+- Crush keeps one model per directory. Switching writes `.crush/crush.json` in the project, as `crush run --model` does, and affects every client there.
+- Paseo caches the provider catalogue. `paseo provider diagnostic crush` re-probes it.
 
 ### 2. Reconnect after a dropped event stream
 
@@ -40,6 +48,8 @@ The event stream ends when SSE drops, which hangs a live turn.
 - [ ] Capabilities are advertised only for methods that work.
 - [ ] Paseo resumes an archived agent and shows its history (live).
 - [ ] `just verify` passes.
+
+Note: Paseo already marks Crush agents as supporting session persistence and listing; today those calls return method-not-found.
 
 ### 4. Diffs for edit tools
 
@@ -68,3 +78,4 @@ Two agents in one directory share a Crush database file.
 ## Log
 
 - 2026-11-24: Spike commits pushed. Plan written. Slice 1 started.
+- 2026-11-24: Slice 1 model selector done (`7cca523`), verified with `TestLiveModelSwitch` and a Paseo agent. Modes remain open within slice 1.
