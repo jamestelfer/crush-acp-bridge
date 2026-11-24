@@ -225,7 +225,9 @@ Supported:
 
 Not supported:
 
-- Editor file system and terminal delegation. The agent reads files from disk, so unsaved buffers are invisible.
+- Editor file system and terminal delegation. Crush reads files from disk, so unsaved buffers are invisible,
+  and commands do not appear in the editor's terminals. Crush has no way to hand a tool to a client
+  ([ADR 12](docs/adr/0012-no-editor-fs-terminal-delegation.md)).
 - Audio prompts, and embedded binary resources other than images and text.
 - `authenticate`, `logout`, `session/close`, `session/delete` and the unstable `session/set_model`. The bridge
   advertises none of them, and offers models as a config option instead.
