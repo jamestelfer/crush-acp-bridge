@@ -13,7 +13,7 @@ Progress tracker for the work after the spike. Update the checkboxes and the log
 
 ### 0. Housekeeping
 
-- [x] The five spike commits are pushed (`0c4f40e`).
+- [x] The five spike commits are pushed.
 
 ### 1. Paseo shows models and modes
 
@@ -25,7 +25,7 @@ Paseo shows model `-` today. The bridge advertises Crush's models.
 - [x] Live: `paseo provider models crush` lists the Vertex models, with the current one as default.
 - [x] Paseo's agent view shows the real model name instead of `-` (live): agent runtime reports `vertexai/gemini-3.1-pro-preview`.
 - [x] `just verify` passes.
-- [x] Modes: Crush's `coder`/`plan` agents as ACP modes (`1a27139`). The bridge tracks the mode it set, since Crush cannot report it. Live: plan mode refused a file write; coder mode wrote it after one permission. Paseo's diagnostic reports `modes=2`.
+- [x] Modes: Crush's `coder`/`plan` agents as ACP modes (ADR 0003; `TestReconnectRestoresTheModeOnTheServer`, `TestModeChangeDuringATurnFailsAndKeepsTheMode`). The bridge tracks the mode it set, since Crush cannot report it. Live: plan mode refused a file write; coder mode wrote it after one permission. Paseo's diagnostic reports `modes=2`.
 
 Notes:
 
@@ -120,13 +120,13 @@ Notes:
 ## Log
 
 - 2026-11-24: Spike commits pushed. Plan written. Slice 1 started.
-- 2026-11-24: Slice 1 model selector done (`7cca523`), verified with `TestLiveModelSwitch` and a Paseo agent.
-- 2026-11-24: Slice 1 modes done (`1a27139`). Slice 1 complete. Found the data-directory lock behind slice 5.
+- 2026-11-24: Slice 1 model selector done (`TestSelectingAModelSwitchesCrush`), verified with `TestLiveModelSwitch` and a Paseo agent.
+- 2026-11-24: Slice 1 modes done (ADR 0003). Slice 1 complete. Found the data-directory lock behind slice 5.
 - 2026-11-24: Chose to join Crush's shared server. Merged reconnect and isolation into slice 2, ahead of slice 3. Slice 2 started.
-- 2026-11-24: `--shared` done (`69693ba`), verified live with two concurrent bridges and a `CRUSH_CLIENT_SERVER=1` client. Next: reconnect, Paseo provider, README.
-- 2026-11-24: Reconnect done (`d2ee79d`, `2e6161f`), Paseo switched to `--shared`, README updated. Slice 2 complete. Next: slice 3.
-- 2026-11-24: Slice 3 done (`433eb23`), verified live through Paseo resume, `paseo import` and a direct `session/list`. Next: slice 4.
-- 2026-11-24: Review fixes applied (`ff12325`..`2073fbd`).
-- 2026-11-24: Slice 4 done (`18e8ccf`), verified live with a Paseo Crush agent: the pending edit permission carried the whole-file diff. Next: slice 5.
-- 2026-11-24: Slice 5 done (`871d797`), verified with a traced Paseo session: no method-not-found in either direction, and every unimplemented method Paseo can call is gated on a capability or field the bridge does not send.
-- 2026-11-24: Windows named pipe support for --shared (`1df1bc3`), cross-compiled; not verified on Windows.
+- 2026-11-24: `--shared` done (ADR 0001; `TestBridgesStartingTogetherShareOneServer`), verified live with two concurrent bridges and a `CRUSH_CLIENT_SERVER=1` client. Next: reconnect, Paseo provider, README.
+- 2026-11-24: Reconnect done (ADR 0008; `TestLostEventStreamFailsTheTurnAndTheBridgeReconnects`), Paseo switched to `--shared`, README updated. Slice 2 complete. Next: slice 3.
+- 2026-11-24: Slice 3 done (ADR 0006; `TestLoadReplaysWhatTheLiveRunShowed`), verified live through Paseo resume, `paseo import` and a direct `session/list`. Next: slice 4.
+- 2026-11-24: Review fixes applied (ADR 0002; `TestReconnectRestoresTheModeOnTheServer`, `TestConcurrentSessionsInANewDirectoryOpenItOnce`).
+- 2026-11-24: Slice 4 done (ADR 0007; `TestEditPermissionCarriesTheWholeFileDiff`), verified live with a Paseo Crush agent: the pending edit permission carried the whole-file diff. Next: slice 5.
+- 2026-11-24: Slice 5 done (`docs/paseo.md`), verified with a traced Paseo session: no method-not-found in either direction, and every unimplemented method Paseo can call is gated on a capability or field the bridge does not send.
+- 2026-11-24: Windows named pipe support for `--shared` (ADR 0001; `TestDefaultPipeFollowsCrushsRule`), cross-compiled; not verified on Windows.

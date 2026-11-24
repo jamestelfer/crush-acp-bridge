@@ -74,6 +74,10 @@ Use Conventional Commits for all commit messages and PR titles. `pr-title.yml` e
 | `fix: <description>` | bug fix (patch bump) |
 | `chore:`, `docs:`, `refactor:`, `test:`, `ci:` | maintenance, no release |
 
+## References in docs
+
+Cite PRs, issues, ADRs, tests or file paths, never commit hashes. Branches are squash-merged and may be rewritten, so hashes go stale.
+
 ## Key conventions
 
 - Service configuration is environment variables, not flags.
