@@ -3,14 +3,12 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
-	"net"
 	"net/http"
 	"testing"
 
-	"github.com/Microsoft/go-winio"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 
 	"github.com/jamestelfer/crush-acp-bridge/internal/crushserver"
 	"github.com/jamestelfer/crush-acp-bridge/internal/fakecrush"
@@ -26,15 +24,21 @@ func sharedEnv(t *testing.T) {
 
 // defaultAddress returns Crush's default pipe for the current user. Unlike
 // the Unix socket, the pipe name cannot be redirected per test, so the test
-// uses the real one, and skips when a server already answers there rather
-// than stopping it.
+// uses the real one. A fake left there by an earlier, interrupted run is
+// stopped; a real Crush server makes the test skip rather than stop it.
 func defaultAddress(t *testing.T) string {
 	t.Helper()
 	addr := crushserver.DefaultSocket()
 	require.NotEmpty(t, addr, "the current user's SID is readable")
-	if _, err := socketGet(addr, http.MethodGet, "/v1/health"); err == nil {
+
+	if _, err := fakecrush.Call(t.Context(), addr, http.MethodGet, "/_fake/pid"); err == nil {
+		require.NoError(t, fakecrush.Stop(addr), "stop the fake left on %s by an earlier run", addr)
+	}
+	_, err := fakecrush.Call(t.Context(), addr, http.MethodGet, "/v1/health")
+	if err == nil {
 		t.Skipf("a Crush server already answers on %s", addr)
 	}
+	require.ErrorIs(t, err, windows.ERROR_FILE_NOT_FOUND, "probe %s", addr)
 	return addr
 }
 
@@ -42,8 +46,4 @@ func defaultAddress(t *testing.T) string {
 func explicitAddress(t *testing.T) string {
 	t.Helper()
 	return `\\.\pipe\crush-acp-test-` + rand.Text()
-}
-
-func dialAddress(ctx context.Context, addr string) (net.Conn, error) {
-	return winio.DialPipeContext(ctx, addr)
 }

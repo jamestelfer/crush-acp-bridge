@@ -3,8 +3,6 @@
 package main
 
 import (
-	"context"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,21 +23,20 @@ func sharedEnv(t *testing.T) {
 }
 
 // defaultAddress returns Crush's default socket, which sharedEnv moved into
-// a fresh directory.
+// a fresh directory. It fails rather than return the user's real socket,
+// which DefaultSocket falls back to when the fresh path is too long to bind.
 func defaultAddress(t *testing.T) string {
 	t.Helper()
-	return crushserver.DefaultSocket()
+	addr := crushserver.DefaultSocket()
+	require.Equal(t, os.Getenv("XDG_RUNTIME_DIR"), filepath.Dir(addr),
+		"the default socket is in the test's directory; shorten TMPDIR if it is not")
+	return addr
 }
 
 // explicitAddress returns a socket path other than Crush's default.
 func explicitAddress(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(shortDir(t), "mine.sock")
-}
-
-func dialAddress(ctx context.Context, addr string) (net.Conn, error) {
-	var d net.Dialer
-	return d.DialContext(ctx, "unix", addr)
 }
 
 // shortDir returns a fresh directory whose paths fit in a Unix socket
