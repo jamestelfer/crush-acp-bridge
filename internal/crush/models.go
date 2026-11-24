@@ -22,6 +22,7 @@ type Model struct {
 	ProviderName string
 	ID           string
 	Name         string
+	Vision       bool // the model accepts images
 }
 
 // Models is the workspace's current large model and the models it may switch
@@ -39,8 +40,11 @@ type workspaceConfig struct {
 		Name    string `json:"name"`
 		Disable bool   `json:"disable"`
 		Models  []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID           string `json:"id"`
+			Name         string `json:"name"`
+			Capabilities struct {
+				Vision bool `json:"vision"`
+			} `json:"capabilities"`
 		} `json:"models"`
 	} `json:"providers"`
 }
@@ -71,7 +75,7 @@ func (w *Workspace) Models(ctx context.Context) (Models, error) {
 	for _, id := range ids {
 		p := cfg.Providers[id]
 		for _, m := range p.Models {
-			out.Available = append(out.Available, Model{Provider: id, ProviderName: p.Name, ID: m.ID, Name: m.Name})
+			out.Available = append(out.Available, Model{Provider: id, ProviderName: p.Name, ID: m.ID, Name: m.Name, Vision: m.Capabilities.Vision})
 		}
 	}
 	return out, nil

@@ -196,10 +196,34 @@ var ErrBusy = errors.New("session is busy")
 // resource.
 var ErrNotFound = errors.New("not found")
 
+// Prompt is what a user sends to start a turn: text and the files attached to
+// it.
+type Prompt struct {
+	Text        string
+	Attachments []Attachment
+}
+
+// Attachment is a file sent with a prompt, as Crush's proto.Attachment
+// encodes it. Crush inlines text/* content into the prompt and passes
+// image/* and audio/* content to a model that accepts it.
+type Attachment struct {
+	FilePath string `json:"file_path"`
+	FileName string `json:"file_name"`
+	MimeType string `json:"mime_type"`
+	Content  []byte `json:"content"` // standard base64 on the wire, as Crush expects
+}
+
+// agentMessage is the body of POST /agent (Crush's proto.AgentMessage).
+type agentMessage struct {
+	SessionID   string       `json:"session_id"`
+	Prompt      string       `json:"prompt"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+}
+
 // Prompt starts an agent turn in the session. The run continues on the server
 // after Prompt returns; follow it through Events.
-func (w *Workspace) Prompt(ctx context.Context, sessionID, text string) error {
-	body := map[string]string{"session_id": sessionID, "prompt": text}
+func (w *Workspace) Prompt(ctx context.Context, sessionID string, p Prompt) error {
+	body := agentMessage{SessionID: sessionID, Prompt: p.Text, Attachments: p.Attachments}
 	if err := w.c.do(ctx, http.MethodPost, w.path("/agent"), body, nil); err != nil {
 		return fmt.Errorf("prompt: %w", err)
 	}
