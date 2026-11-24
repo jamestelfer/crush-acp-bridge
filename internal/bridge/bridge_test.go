@@ -216,10 +216,9 @@ func (f *fakeCrush) current() chan []byte {
 func (f *fakeCrush) drop() {
 	f.down.Store(true) // like a dead server, refuse work until resubscribed
 	f.mu.Lock()
-	old := f.events
+	defer f.mu.Unlock()
+	close(f.events)
 	f.events = make(chan []byte, 1024)
-	f.mu.Unlock()
-	close(old)
 }
 
 func (f *fakeCrush) currentSessions() []string {
@@ -232,12 +231,12 @@ func (f *fakeCrush) Prompt(_ context.Context, _ string, text string) error {
 	if f.down.Load() {
 		return errors.New("dial unix crush.sock: connect: connection refused")
 	}
+	// Hold mu while sending so drop cannot close the stream mid-turn.
 	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.prompts = append(f.prompts, text)
-	events := f.events
-	f.mu.Unlock()
 	for _, data := range f.script {
-		events <- data
+		f.events <- data
 	}
 	return nil
 }
