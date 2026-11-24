@@ -9,7 +9,7 @@ An ACP editor advertises `fs.readTextFile`, `fs.writeTextFile` and `terminal` cl
 
 Crush 0.102.0 runs every tool inside the server process:
 
-- `view`, `edit`, `multiedit` and `write` call `os.Open`, `os.ReadFile` and `os.WriteFile` directly (`internal/agent/tools/view.go`, `edit.go`, `write.go`). No file system interface sits between a tool and the disk.
+- `view`, `edit`, `multiedit` and `write` call `os.Open`, `os.ReadFile` and `os.WriteFile` directly (`internal/agent/tools/view.go`, `edit.go`, `multiedit.go`, `write.go`). `multiedit` reads through `edit.go`'s `loadExistingFile` and writes through `write.go`'s `writeFileWithParents`. No file system interface sits between a tool and the disk.
 - `bash` and the background job tools run commands in Crush's in-process shell (`internal/shell`).
 - The HTTP API has no endpoint or event that hands a tool's read, write or command to a client. Crush's `main` branch adds none.
 
@@ -23,7 +23,7 @@ The nearest features do not fit:
 
 The bridge does not read `clientCapabilities.fs` or `clientCapabilities.terminal`, and never calls `fs/*` or `terminal/*`.
 
-Delegation waits on Crush routing tool file access and commands to a client. The request to Crush is tracked with the `upstream:crush` label on issue #7.
+Delegation waits on Crush routing tool file access and commands to a client. No upstream Crush issue exists yet. Once one is filed, issue #7 links to it.
 
 ## Consequences
 
