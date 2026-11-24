@@ -65,15 +65,34 @@ func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts .
 	for _, opt := range opts {
 		opt(a)
 	}
-	conn := acp.NewAgentSideConnection(a, out, in)
+	// The library starts reading in, and dispatching requests to a, before
+	// NewAgentSideConnection returns. The gate holds its reads until the
+	// connection is wired, so no handler sees a half-built connection.
+	gate := make(chan struct{})
+	conn := acp.NewAgentSideConnection(a, out, gatedReader{r: in, open: gate})
 	conn.SetLogger(a.log) // the SDK's own diagnostics follow --log-format
 	a.conn = conn
+	close(gate)
 
+	// Library and bridge goroutines may still log after Serve returns: the
+	// library logs the disconnect after Done closes, and event loops log as
+	// they stop. The log destination must tolerate concurrent writes.
 	select {
 	case <-conn.Done():
 	case <-ctx.Done():
 	}
 	return ctx.Err()
+}
+
+// gatedReader holds every Read until open closes.
+type gatedReader struct {
+	r    io.Reader
+	open <-chan struct{}
+}
+
+func (g gatedReader) Read(p []byte) (int, error) {
+	<-g.open
+	return g.r.Read(p)
 }
 
 // Agent implements acp.Agent on top of a Backend.
