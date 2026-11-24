@@ -318,3 +318,65 @@ func TestFinishedToolCallCarriesItsPermissionParameters(t *testing.T) {
 	unasked := calls["call_9574960797699994523"]
 	require.Empty(t, unasked.RawParams, "Crush did not ask about the second write")
 }
+
+// questionsIn returns the QuestionAsked updates a trace yields.
+func questionsIn(t *testing.T, name string) []translate.Update {
+	t.Helper()
+	tr := translate.New()
+	var out []translate.Update
+	for _, data := range replay(t, name) {
+		updates, err := tr.Feed(data)
+		require.NoError(t, err)
+		for _, u := range updates {
+			if u.Kind == translate.QuestionAsked {
+				out = append(out, u)
+			}
+		}
+	}
+	return out
+}
+
+func TestQuestionBatchIsSurfacedWithItsToolCall(t *testing.T) {
+	asked := questionsIn(t, "question-batch.sse")
+	require.Len(t, asked, 1)
+
+	u := asked[0]
+	require.Equal(t, "ccacbfd4-687f-4a4b-a1fa-f1f46d38bac2", u.BatchID)
+	require.Equal(t, "a8cd137c-4786-4409-b86d-c64711797633", u.SessionID)
+	require.Equal(t, "call_5373993239042528834", u.ToolCallID)
+	require.Equal(t, []translate.Question{
+		{
+			ID: "655fcadf-67d9-43c3-a9aa-dfa415d0d710", Type: translate.SingleChoice, Label: "Language",
+			Text:        "Should the greeting be in English or French?",
+			Description: "Select the language you want to use for the greeting.",
+			Choices:     []translate.Choice{{ID: "en", Label: "English"}, {ID: "fr", Label: "French"}},
+		},
+		{
+			ID: "d075d1c2-760e-41f3-bded-5413c53b1100", Type: translate.YesNo, Label: "Exclamation",
+			Text:        "Should we end it with an exclamation mark?",
+			Description: "Adds an enthusiastic exclamation mark at the end of the greeting.",
+		},
+		{
+			ID: "1af14935-2e23-4757-a924-026a19dbdab6", Type: translate.FreeText, Label: "Name",
+			Text:        "Whose name should be greeted?",
+			Description: "Provide the name of the person to be greeted.",
+		},
+	}, u.Questions)
+}
+
+func TestQuestionToolCallFinishesWithTheAnswers(t *testing.T) {
+	tr := translate.New()
+	var finished []translate.Update
+	for _, data := range replay(t, "question-batch.sse") {
+		updates, err := tr.Feed(data)
+		require.NoError(t, err)
+		for _, u := range updates {
+			if u.Kind == translate.ToolCallFinished {
+				finished = append(finished, u)
+			}
+		}
+	}
+	require.Len(t, finished, 1)
+	require.Equal(t, "question", finished[0].ToolName)
+	require.Contains(t, finished[0].Output, "User provided: Recorded answer")
+}

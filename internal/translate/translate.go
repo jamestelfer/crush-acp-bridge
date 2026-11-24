@@ -29,6 +29,9 @@ const (
 	ToolCallFinished
 	// PermissionRequested asks the client to approve a tool call.
 	PermissionRequested
+	// QuestionAsked carries a batch of questions from Crush's question tool,
+	// which waits for the user's answers.
+	QuestionAsked
 	// TurnEnded closes a prompt turn; StopReason holds the ACP stop reason.
 	TurnEnded
 )
@@ -41,6 +44,7 @@ var kindNames = map[Kind]string{
 	ToolCallInput:       "tool_call_input",
 	ToolCallFinished:    "tool_call_finished",
 	PermissionRequested: "permission_requested",
+	QuestionAsked:       "question_asked",
 	TurnEnded:           "turn_ended",
 }
 
@@ -80,8 +84,42 @@ type Update struct {
 	// for PermissionRequested, and for ToolCallFinished when Crush asked.
 	RawParams jsontext.Value
 
+	// Question fields, set for QuestionAsked. BatchID names the batch when it
+	// is answered or cancelled; ToolCallID is the question tool's call.
+	BatchID   string
+	Questions []Question
+
 	// StopReason is set for TurnEnded: end_turn, cancelled, max_tokens or error.
 	StopReason string
+}
+
+// QuestionType is the kind of answer a Question expects.
+type QuestionType string
+
+// The question types Crush's question tool asks.
+const (
+	YesNo        QuestionType = "yes_no"
+	SingleChoice QuestionType = "single_choice"
+	MultiChoice  QuestionType = "multi_choice"
+	FreeText     QuestionType = "free_text"
+)
+
+// Question is one question of a batch, as Crush's proto.QuestionItem encodes
+// it.
+type Question struct {
+	ID          string       `json:"id"`
+	Type        QuestionType `json:"type"`
+	Label       string       `json:"label,omitzero"`
+	Text        string       `json:"question"`
+	Description string       `json:"description,omitzero"`
+	Choices     []Choice     `json:"choices,omitzero"`
+}
+
+// Choice is one option of a single_choice or multi_choice Question.
+type Choice struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitzero"`
 }
 
 // Translator turns a stream of Crush events into Updates. It is not safe for
@@ -146,6 +184,8 @@ func (t *Translator) Feed(data []byte) ([]Update, error) {
 		return t.message(env.Payload.Payload)
 	case "permission_request":
 		return t.permission(env.Payload.Payload)
+	case "question_batch_request":
+		return question(env.Payload.Payload)
 	default:
 		return nil, nil
 	}
@@ -319,6 +359,21 @@ func (t *Translator) permission(raw jsontext.Value) ([]Update, error) {
 	return []Update{{
 		Kind: PermissionRequested, SessionID: d.SessionID, PermissionID: d.ID, ToolCallID: d.ToolCallID,
 		ToolName: d.ToolName, Description: d.Description, RawPermission: raw, RawParams: d.Params,
+	}}, nil
+}
+
+func question(raw jsontext.Value) ([]Update, error) {
+	var d struct {
+		ID         string     `json:"id"`
+		SessionID  string     `json:"session_id"`
+		ToolCallID string     `json:"tool_call_id"`
+		Questions  []Question `json:"questions"`
+	}
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return nil, fmt.Errorf("decode question batch: %w", err)
+	}
+	return []Update{{
+		Kind: QuestionAsked, SessionID: d.SessionID, BatchID: d.ID, ToolCallID: d.ToolCallID, Questions: d.Questions,
 	}}, nil
 }
 

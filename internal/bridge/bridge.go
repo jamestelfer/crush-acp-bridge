@@ -30,6 +30,8 @@ type Backend interface {
 	Prompt(ctx context.Context, sessionID string, p crush.Prompt) error
 	Cancel(ctx context.Context, sessionID string) error
 	Grant(ctx context.Context, permission jsontext.Value, action crush.Action) error
+	AnswerQuestions(ctx context.Context, batchID string, answers []crush.QuestionAnswer) (bool, error)
+	CancelQuestions(ctx context.Context, batchID string) (bool, error)
 	Events(ctx context.Context) (<-chan []byte, error)
 	Ping(ctx context.Context) error
 	Models(ctx context.Context) (crush.Models, error)
@@ -124,7 +126,11 @@ type Agent struct {
 	reconnects map[string]chan struct{}     // closed when a directory reconnects
 	modes      map[string]acp.SessionModeId // Crush's active agent, by directory
 	sessions   map[string]*session
-	asking     map[string]bool // permission requests the editor is answering, by ID
+	asking     map[string]bool // permission requests and question batches the editor is answering, by ID
+
+	// formElicitation is set when the editor advertises form elicitation, so
+	// a free-text question can take a typed answer.
+	formElicitation atomic.Bool
 
 	// closing is set once Serve starts deleting empty sessions. From then on
 	// no prompt starts and no session is created, so none is deleted after
@@ -229,7 +235,9 @@ func (s *session) setSent(text string) {
 var _ acp.Agent = (*Agent)(nil)
 
 // Initialize negotiates capabilities.
-func (a *Agent) Initialize(context.Context, acp.InitializeRequest) (acp.InitializeResponse, error) {
+func (a *Agent) Initialize(_ context.Context, req acp.InitializeRequest) (acp.InitializeResponse, error) {
+	e := req.ClientCapabilities.Elicitation
+	a.formElicitation.Store(e != nil && e.Form != nil)
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentInfo:       &acp.Implementation{Name: "crush-acp-bridge", Version: "0.0.0"},
@@ -811,6 +819,8 @@ func (a *Agent) forward(u *translate.Update) {
 		))
 	case translate.PermissionRequested:
 		a.requestPermission(s, u)
+	case translate.QuestionAsked:
+		a.askQuestions(s, u)
 	case translate.TurnEnded:
 		s.end(turnEnd{reason: acp.StopReason(u.StopReason)})
 	}

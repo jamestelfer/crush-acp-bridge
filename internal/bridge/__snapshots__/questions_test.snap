@@ -1,0 +1,241 @@
+
+[TestEditorViewOfQuestionTurn - 1]
+{
+ "answered": [
+  {
+   "answers": [
+    {
+     "request_id": "655fcadf-67d9-43c3-a9aa-dfa415d0d710",
+     "selected_ids": [
+      "en"
+     ]
+    },
+    {
+     "request_id": "d075d1c2-760e-41f3-bded-5413c53b1100",
+     "yes": true
+    },
+    {
+     "request_id": "1af14935-2e23-4757-a924-026a19dbdab6"
+    }
+   ],
+   "batch_id": "ccacbfd4-687f-4a4b-a1fa-f1f46d38bac2"
+  }
+ ],
+ "asked": [
+  {
+   "options": [
+    {
+     "kind": "allow_once",
+     "name": "English",
+     "optionId": "en"
+    },
+    {
+     "kind": "allow_once",
+     "name": "French",
+     "optionId": "fr"
+    }
+   ],
+   "sessionId": "a8cd137c-4786-4409-b86d-c64711797633",
+   "toolCall": {
+    "content": [
+     {
+      "content": {
+       "text": "Select the language you want to use for the greeting.\n\n- English\n- French",
+       "type": "text"
+      },
+      "type": "content"
+     }
+    ],
+    "kind": "other",
+    "status": "pending",
+    "title": "(1/3) Should the greeting be in English or French?",
+    "toolCallId": "call_5373993239042528834"
+   }
+  },
+  {
+   "options": [
+    {
+     "kind": "allow_once",
+     "name": "Yes",
+     "optionId": "yes"
+    },
+    {
+     "kind": "reject_once",
+     "name": "No",
+     "optionId": "no"
+    }
+   ],
+   "sessionId": "a8cd137c-4786-4409-b86d-c64711797633",
+   "toolCall": {
+    "content": [
+     {
+      "content": {
+       "text": "Adds an enthusiastic exclamation mark at the end of the greeting.",
+       "type": "text"
+      },
+      "type": "content"
+     }
+    ],
+    "kind": "other",
+    "status": "pending",
+    "title": "(2/3) Should we end it with an exclamation mark?",
+    "toolCallId": "call_5373993239042528834"
+   }
+  },
+  {
+   "options": [
+    {
+     "kind": "reject_once",
+     "name": "Skip",
+     "optionId": "skip"
+    }
+   ],
+   "sessionId": "a8cd137c-4786-4409-b86d-c64711797633",
+   "toolCall": {
+    "content": [
+     {
+      "content": {
+       "text": "Provide the name of the person to be greeted.\n\nThis editor cannot send a typed answer here: skip the question, then reply in the chat.",
+       "type": "text"
+      },
+      "type": "content"
+     }
+    ],
+    "kind": "other",
+    "status": "pending",
+    "title": "(3/3) Whose name should be greeted?",
+    "toolCallId": "call_5373993239042528834"
+   }
+  }
+ ],
+ "cancelled": [],
+ "updates": [
+  {
+   "content": {
+    "text": "**Answering User Request**\n\nI am focusing on fulfilling your specific request to utilize the `question` tool. My current processing involves formulating the precise set of three questions, starting with a single-choice option for language, as you've outlined.\n\n",
+    "type": "text"
+   },
+   "sessionUpdate": "agent_thought_chunk"
+  },
+  {
+   "content": {
+    "text": "**Developing Greeting Logic**\n\nI'm refining the structure for the `question` tool call. My focus is on assembling the `questions` array, specifically defining the parameters for the `single_choice` language selection and the `yes_no` punctuation query. I'm also considering the prompt for the free-text name input.\n\n",
+    "type": "text"
+   },
+   "sessionUpdate": "agent_thought_chunk"
+  },
+  {
+   "kind": "other",
+   "sessionUpdate": "tool_call",
+   "status": "in_progress",
+   "title": "question",
+   "toolCallId": "call_5373993239042528834"
+  },
+  {
+   "rawInput": {
+    "confirm_description": "We'll generate the appropriate greeting based on these preferences.",
+    "confirm_title": "Ready to greet?",
+    "questions": [
+     {
+      "choices": [
+       {
+        "id": "en",
+        "label": "English"
+       },
+       {
+        "id": "fr",
+        "label": "French"
+       }
+      ],
+      "description": "Select the language you want to use for the greeting.",
+      "label": "Language",
+      "question": "Should the greeting be in English or French?",
+      "type": "single_choice"
+     },
+     {
+      "description": "Adds an enthusiastic exclamation mark at the end of the greeting.",
+      "label": "Exclamation",
+      "question": "Should we end it with an exclamation mark?",
+      "type": "yes_no"
+     },
+     {
+      "description": "Provide the name of the person to be greeted.",
+      "label": "Name",
+      "question": "Whose name should be greeted?",
+      "type": "free_text"
+     }
+    ]
+   },
+   "sessionUpdate": "tool_call_update",
+   "title": "Question",
+   "toolCallId": "call_5373993239042528834"
+  },
+  {
+   "content": [
+    {
+     "content": {
+      "text": "**Should the greeting be in English or French?**\n\nSelect the language you want to use for the greeting.\n\n- English\n- French\n\n**Should we end it with an exclamation mark?**\n\nAdds an enthusiastic exclamation mark at the end of the greeting.\n\n**Whose name should be greeted?**\n\nProvide the name of the person to be greeted.",
+      "type": "text"
+     },
+     "type": "content"
+    }
+   ],
+   "sessionUpdate": "tool_call_update",
+   "title": "3 questions",
+   "toolCallId": "call_5373993239042528834"
+  },
+  {
+   "content": [
+    {
+     "content": {
+      "text": "Q1: Should the greeting be in English or French?\nUser selected: [\"en\"]\n\nQ2: Should we end it with an exclamation mark?\nUser answered: yes\n\nQ3: Whose name should be greeted?\nUser provided: Recorded answer",
+      "type": "text"
+     },
+     "type": "content"
+    }
+   ],
+   "sessionUpdate": "tool_call_update",
+   "status": "completed",
+   "toolCallId": "call_5373993239042528834"
+  },
+  {
+   "content": {
+    "text": "You selected English for the greeting, opted to include an exclamation mark,",
+    "type": "text"
+   },
+   "sessionUpdate": "agent_message_chunk"
+  },
+  {
+   "content": {
+    "text": " and specified \"Recorded answer\" as the name to greet.",
+    "type": "text"
+   },
+   "sessionUpdate": "agent_message_chunk"
+  }
+ ]
+}
+---
+
+[TestFreeTextQuestionUsesAFormWhenTheEditorOffersOne - 1]
+[
+ {
+  "message": "(3/3) Whose name should be greeted?",
+  "mode": "form",
+  "requestedSchema": {
+   "properties": {
+    "answer": {
+     "description": "Provide the name of the person to be greeted.",
+     "title": "Whose name should be greeted?",
+     "type": "string"
+    }
+   },
+   "required": [
+    "answer"
+   ],
+   "type": "object"
+  },
+  "sessionId": "a8cd137c-4786-4409-b86d-c64711797633",
+  "toolCallId": "call_5373993239042528834"
+ }
+]
+---

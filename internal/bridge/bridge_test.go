@@ -95,6 +95,8 @@ type fakeCrush struct {
 	cancels     []string
 	grants      []grant
 	grantErr    error
+	answered    []answered // question batches answered, in order
+	cancelledQ  []string   // question batches cancelled, in order
 	models      crush.Models
 	modelsErr   error
 	setModels   []crush.ModelRef
@@ -334,12 +336,35 @@ func (f *fakeCrush) Grant(_ context.Context, p jsontext.Value, a crush.Action) e
 	return f.grantErr
 }
 
+// answered is one question batch the bridge answered.
+type answered struct {
+	BatchID string                 `json:"batch_id"`
+	Answers []crush.QuestionAnswer `json:"answers"`
+}
+
+func (f *fakeCrush) AnswerQuestions(_ context.Context, batchID string, answers []crush.QuestionAnswer) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answered = append(f.answered, answered{batchID, answers})
+	return true, nil
+}
+
+func (f *fakeCrush) CancelQuestions(_ context.Context, batchID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancelledQ = append(f.cancelledQ, batchID)
+	return true, nil
+}
+
 // editor is an in-memory ACP client that records what the agent sends.
 type editor struct {
 	mu          sync.Mutex
 	updates     []acp.SessionUpdate
 	sessions    []acp.SessionId // the session of each entry in updates
 	onPermisson func(acp.RequestPermissionRequest) acp.RequestPermissionResponse
+	// onElicit answers elicitation requests; without it the editor refuses
+	// them, as one that does not support elicitation does.
+	onElicit func(acp.CreateElicitationRequest) acp.CreateElicitationResponse
 }
 
 func (e *editor) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
@@ -387,8 +412,11 @@ func (*editor) WaitForTerminalExit(context.Context, acp.WaitForTerminalExitReque
 	return acp.WaitForTerminalExitResponse{}, errNoFS
 }
 
-func (*editor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
-	return acp.CreateElicitationResponse{}, errNoFS
+func (e *editor) CreateElicitation(_ context.Context, r acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+	if e.onElicit == nil {
+		return acp.CreateElicitationResponse{}, errNoFS
+	}
+	return e.onElicit(r), nil
 }
 func (*editor) CompleteElicitation(context.Context, acp.CompleteElicitationNotification) error {
 	return errNoFS
