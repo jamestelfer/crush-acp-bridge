@@ -50,7 +50,7 @@ Ordered ahead of slice 3: without it, a second Crush agent in a directory fails.
 
 **Limits.** Only servers take the data-directory lock (`db.WithDataDirLock`). A plain `crush` without `CRUSH_CLIENT_SERVER=1` runs in-process alongside the shared server without conflict, writing the same SQLite file, but sees no live events from it.
 
-**Aside.** Each `--managed` run leaves `~/.cache/crush/server-tcp___127.0.0.1_<port>/` behind, one per random port. `--shared` uses one fixed directory.
+**Aside.** A `--managed` server on a random port has its `server-tcp___127.0.0.1_<port>/` cache directory removed once it exits ([#10](https://github.com/jamestelfer/crush-acp-bridge/issues/10)). `--shared` uses one fixed directory.
 
 **Acceptance.**
 

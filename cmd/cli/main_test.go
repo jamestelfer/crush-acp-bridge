@@ -234,6 +234,8 @@ func healthyAt(url string) bool {
 
 func TestManagedModeRunsAChildServerThatLivesAndDiesWithTheBridge(t *testing.T) {
 	t.Setenv(fakecrush.EnvMode, "serve") // inherited by the child
+	cache := t.TempDir()
+	t.Setenv("CRUSH_CACHE_DIR", cache) // where the child keeps its log
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
 	var stderr syncBuffer
@@ -283,6 +285,9 @@ func TestManagedModeRunsAChildServerThatLivesAndDiesWithTheBridge(t *testing.T) 
 
 	serverURL := loggedServerURL(t, &stderr)
 	require.True(t, healthyAt(serverURL), "the child server is up while the bridge runs")
+	running, err := os.ReadDir(cache)
+	require.NoError(t, err)
+	require.Len(t, running, 1, "the child server keeps a cache directory while it runs")
 
 	require.NoError(t, stdinW.Close())
 	select {
@@ -293,6 +298,9 @@ func TestManagedModeRunsAChildServerThatLivesAndDiesWithTheBridge(t *testing.T) 
 	}
 	assert.Eventually(t, func() bool { return !healthyAt(serverURL) }, 5*time.Second, 50*time.Millisecond,
 		"the child server must stop with the bridge")
+	left, err := os.ReadDir(cache)
+	require.NoError(t, err)
+	assert.Empty(t, left, "the child server's cache directory goes with it")
 }
 
 // loggedServerURL returns the url attribute of the "crush server started" record.
