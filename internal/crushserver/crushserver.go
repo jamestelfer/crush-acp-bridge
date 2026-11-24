@@ -95,7 +95,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		if addr, err = freeAddr(); err != nil {
 			return nil, fmt.Errorf("pick a port for crush server: %w", err)
 		}
-		if cache := cacheDir(runtime.GOOS, envLookup(env)); cache != "" {
+		if cache := cacheDir(runtime.GOOS, envLookup(runtime.GOOS, env)); cache != "" {
 			tidyDir = serverCacheDir(cache, addr)
 		}
 	}
@@ -271,14 +271,14 @@ func serverCacheDir(cache, addr string) string {
 	return filepath.Join(cache, "server-"+unsafeHostChars.ReplaceAllString("tcp://"+addr, "_"))
 }
 
-// envLookup returns a getenv over env, a list of KEY=value entries. The last
-// entry for a key wins, as it does for a child process. Windows matches keys
+// envLookup returns a getenv over env, a list of KEY=value entries, as a child
+// on goos sees it. The last entry for a key wins. Windows matches keys
 // without regard to case.
-func envLookup(env []string) func(string) string {
+func envLookup(goos string, env []string) func(string) string {
 	return func(key string) string {
 		for _, kv := range slices.Backward(env) {
 			k, v, ok := strings.Cut(kv, "=")
-			if ok && (k == key || runtime.GOOS == "windows" && strings.EqualFold(k, key)) {
+			if ok && (k == key || goos == "windows" && strings.EqualFold(k, key)) {
 				return v
 			}
 		}
@@ -291,6 +291,11 @@ func envLookup(env []string) func(string) string {
 // lumberjack names a backup crush-<timestamp>.log).
 var serverLogs = []string{"crush.log", "crush-*.log"}
 
+// removeRetry bounds how long removeServerCache retries a removal. On Windows
+// a handle on crush.log can outlive the killed server briefly, held by the
+// virus scanner or the indexer, and removal fails until it is released.
+const removeRetry = time.Second
+
 // removeServerCache removes a stopped server's logs and then its cache
 // directory. Anything else in the directory is not known to be disposable, so
 // it and the directory are kept.
@@ -298,16 +303,35 @@ func removeServerCache(log *slog.Logger, dir string) {
 	for _, pattern := range serverLogs {
 		matches, _ := filepath.Glob(filepath.Join(dir, pattern)) // only a malformed pattern errors
 		for _, f := range matches {
-			if err := os.Remove(f); err != nil {
+			if err := removeWithRetry(f); err != nil && !errors.Is(err, os.ErrNotExist) {
 				log.Warn("could not remove crush server log", "path", f, "error", err)
 			}
 		}
 	}
-	switch err := os.Remove(dir); {
+	if rest, err := os.ReadDir(dir); err == nil && len(rest) > 0 {
+		log.Warn("kept crush server cache directory", "path", dir, "reason", "holds files other than logs")
+		return
+	}
+	switch err := removeWithRetry(dir); {
 	case err == nil:
 		log.Debug("removed crush server cache directory", "path", dir)
 	case errors.Is(err, os.ErrNotExist):
 	default:
 		log.Warn("kept crush server cache directory", "path", dir, "error", err)
+	}
+}
+
+// removeWithRetry removes path, retrying with backoff for up to removeRetry
+// while removal fails for any reason other than path not existing.
+func removeWithRetry(path string) error {
+	deadline := time.Now().Add(removeRetry)
+	delay := 10 * time.Millisecond
+	for {
+		err := os.Remove(path)
+		if err == nil || errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(delay)
+		delay = min(2*delay, 200*time.Millisecond)
 	}
 }

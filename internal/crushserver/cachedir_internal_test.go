@@ -67,10 +67,17 @@ func TestServerCacheDirUsesCrushsSafeHostName(t *testing.T) {
 }
 
 func TestEnvLookupTakesTheLastEntry(t *testing.T) {
-	get := envLookup([]string{"A=1", "B=2", "A=3", "C"})
+	get := envLookup("linux", []string{"A=1", "B=2", "A=3", "C"})
 
 	assert.Equal(t, "3", get("A"))
 	assert.Equal(t, "2", get("B"))
 	assert.Empty(t, get("C"))
 	assert.Empty(t, get("D"))
+}
+
+func TestEnvLookupIgnoresKeyCaseOnlyOnWindows(t *testing.T) {
+	env := []string{"Path=/p"}
+
+	assert.Equal(t, "/p", envLookup("windows", env)("PATH"))
+	assert.Empty(t, envLookup("linux", env)("PATH"))
 }

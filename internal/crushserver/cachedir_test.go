@@ -68,7 +68,11 @@ func TestCancellingTheContextRemovesTheCacheDirectory(t *testing.T) {
 
 	cancel()
 
-	assert.Eventually(t, func() bool { return len(entries(t, cache)) == 0 }, 5*time.Second, 20*time.Millisecond)
+	assert.Eventually(t, func() bool {
+		// Runs off the test goroutine, so it must not use require.
+		list, err := os.ReadDir(cache)
+		return err == nil && len(list) == 0
+	}, 5*time.Second, 20*time.Millisecond)
 }
 
 func TestRotatedLogsAreRemovedWithTheCacheDirectory(t *testing.T) {
