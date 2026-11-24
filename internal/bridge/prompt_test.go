@@ -97,6 +97,22 @@ func TestImageWithoutAURIIsNamedForItsType(t *testing.T) {
 		backend.attachments[0])
 }
 
+func TestImageWithAnotherURISchemeKeepsTheURIAsItsPath(t *testing.T) {
+	backend := attachmentBackend(t)
+	conn := connect(t, backend, &editor{})
+	sid := start(t, conn)
+
+	img := acp.ImageBlock(b64("PNG"), "image/png")
+	uri := "zed:///clipboard/paste.png"
+	img.Image.Uri = &uri
+	_, err := promptBlocks(t, conn, sid, acp.TextBlock(tcpPrompt), img)
+	require.NoError(t, err)
+
+	require.Len(t, backend.attachments, 1)
+	assert.Equal(t, []crush.Attachment{{FilePath: uri, FileName: "paste.png", MimeType: "image/png", Content: []byte("PNG")}},
+		backend.attachments[0], "images and resources name a non-file URI the same way")
+}
+
 func TestEmbeddedTextResourceReachesCrushAsATextAttachment(t *testing.T) {
 	backend := attachmentBackend(t)
 	conn := connect(t, backend, &editor{})
@@ -220,13 +236,32 @@ func TestUnsupportedPromptContentIsRefused(t *testing.T) {
 func TestImageIsRefusedWhenTheModelCannotSeeIt(t *testing.T) {
 	backend := attachmentBackend(t)
 	backend.models.Current = crush.ModelRef{Provider: "vertexai", Model: "text-only"}
-	conn := connect(t, backend, &editor{})
+	logs := &logCapture{}
+	conn := connect(t, backend, &editor{}, bridge.WithLogger(logs.logger()))
 	sid := start(t, conn)
 
 	_, err := promptBlocks(t, conn, sid, acp.TextBlock("hi"), acp.ImageBlock(b64("PNG"), "image/png"))
 
 	requireInvalidParams(t, err, "Text Only")
 	assert.Empty(t, backend.prompts, "Crush would drop the image without telling the model")
+	rec := logs.find(t, "prompt content refused")
+	require.NotNil(t, rec, "the refusal is logged")
+	assert.Contains(t, rec["error"], "Text Only")
+}
+
+func TestSessionWhoseImageWasRefusedIsStillDeletedWhenEmpty(t *testing.T) {
+	backend := attachmentBackend(t)
+	backend.models.Current = crush.ModelRef{Provider: "vertexai", Model: "text-only"}
+	backend.stored = []crush.Session{{ID: backend.sessionID}}
+	srv := serveOne(t, backend)
+	sid := start(t, srv.conn)
+
+	_, err := promptBlocks(t, srv.conn, sid, acp.TextBlock("hi"), acp.ImageBlock(b64("PNG"), "image/png"))
+	requireInvalidParams(t, err, "Text Only")
+
+	srv.disconnect(t)
+
+	assert.Equal(t, []string{string(sid)}, backend.deletedSessions(), "nothing reached Crush, so the session is empty")
 }
 
 func TestImageIsSentWhenTheModelIsUnknown(t *testing.T) {

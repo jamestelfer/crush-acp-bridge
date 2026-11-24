@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/coder/acp-go-sdk"
@@ -39,7 +40,6 @@ func (a *Agent) refuseContent(id acp.SessionId, err error) error {
 func crushPrompt(blocks []acp.ContentBlock) (crush.Prompt, error) {
 	var text strings.Builder
 	var p crush.Prompt
-	hasText := false
 	for _, b := range blocks {
 		switch {
 		case b.Text != nil:
@@ -58,7 +58,6 @@ func crushPrompt(blocks []acp.ContentBlock) (crush.Prompt, error) {
 			if err != nil {
 				return crush.Prompt{}, err
 			}
-			hasText = hasText || isText(a.MimeType)
 			p.Attachments = append(p.Attachments, a)
 		case b.Audio != nil:
 			return crush.Prompt{}, fmt.Errorf("%w: crush does not accept audio", errContent)
@@ -68,8 +67,9 @@ func crushPrompt(blocks []acp.ContentBlock) (crush.Prompt, error) {
 	}
 	p.Text = text.String()
 	// Crush refuses a prompt with neither text nor a text attachment.
+	hasText := slices.ContainsFunc(p.Attachments, func(a crush.Attachment) bool { return isText(a.MimeType) })
 	if strings.TrimSpace(p.Text) == "" && !hasText {
-		return crush.Prompt{}, fmt.Errorf("%w: a prompt needs text as well as attachments", errContent)
+		return crush.Prompt{}, fmt.Errorf("%w: a prompt needs text; Crush refuses an empty prompt or one with only image attachments", errContent)
 	}
 	return p, nil
 }
@@ -84,11 +84,7 @@ func imageAttachment(img *acp.ContentBlockImage) (crush.Attachment, error) {
 	}
 	a := crush.Attachment{FileName: "image", MimeType: img.MimeType, Content: data}
 	if img.Uri != nil {
-		filePath, name := uriFile(*img.Uri)
-		a.FileName = name
-		if _, local := localPath(*img.Uri); local {
-			a.FilePath = filePath
-		}
+		a.FilePath, a.FileName = uriFile(*img.Uri)
 	}
 	return a, nil
 }
@@ -129,7 +125,8 @@ func isText(mime string) bool  { return strings.HasPrefix(mime, "text/") }
 func isImage(mime string) bool { return strings.HasPrefix(mime, "image/") }
 
 // uriFile names the file at uri: its local path for a file URI, else the URI
-// itself, and the last element of its path.
+// itself, and the last element of its path. Crush only shows the path to the
+// model, so a URI it cannot open still tells the model where content came from.
 func uriFile(uri string) (filePath, name string) {
 	if p, ok := localPath(uri); ok {
 		return p, filepath.Base(p)
@@ -158,11 +155,7 @@ func localPath(uri string) (string, bool) {
 // is known not to accept one: Crush would drop the image without telling the
 // model. When the model cannot be identified, Crush decides.
 func (a *Agent) checkVision(ctx context.Context, backend Backend, p crush.Prompt) error {
-	hasImage := false
-	for _, att := range p.Attachments {
-		hasImage = hasImage || isImage(att.MimeType)
-	}
-	if !hasImage {
+	if !slices.ContainsFunc(p.Attachments, func(att crush.Attachment) bool { return isImage(att.MimeType) }) {
 		return nil
 	}
 	models, err := backend.Models(ctx)
@@ -170,13 +163,14 @@ func (a *Agent) checkVision(ctx context.Context, backend Backend, p crush.Prompt
 		a.log.Warn("model capabilities unknown; sending the image", "error", err)
 		return nil
 	}
-	for _, m := range models.Available {
-		if m.Provider == models.Current.Provider && m.ID == models.Current.Model {
-			if !m.Vision {
-				return fmt.Errorf("%w: the current model, %s, does not accept images", errContent, cmp.Or(m.Name, m.ID))
-			}
-			return nil
-		}
+	i := slices.IndexFunc(models.Available, func(m crush.Model) bool {
+		return m.Provider == models.Current.Provider && m.ID == models.Current.Model
+	})
+	if i < 0 {
+		return nil
+	}
+	if m := models.Available[i]; !m.Vision {
+		return fmt.Errorf("%w: the current model, %s, does not accept images", errContent, cmp.Or(m.Name, m.ID))
 	}
 	return nil
 }

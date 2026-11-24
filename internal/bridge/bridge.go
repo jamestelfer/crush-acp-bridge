@@ -309,7 +309,9 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	if err != nil {
 		return acp.PromptResponse{}, a.refuseContent(req.SessionId, err)
 	}
-	s, err := a.startPrompt(req.SessionId)
+	// Nothing reaches Crush until startPrompt, so a prompt that fails before
+	// it leaves an empty session eligible for clean-up.
+	s, err := a.lookup(req.SessionId)
 	if err != nil {
 		return acp.PromptResponse{}, err
 	}
@@ -318,6 +320,9 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	}
 	if err := a.checkVision(ctx, a.backend(s.cwd), p); err != nil {
 		return acp.PromptResponse{}, a.refuseContent(req.SessionId, err)
+	}
+	if s, err = a.startPrompt(req.SessionId); err != nil {
+		return acp.PromptResponse{}, err
 	}
 	// sent is set before active, so a catch-up that sees the turn active
 	// also sees which prompt it waits for. Crush stores the prompt text
