@@ -239,8 +239,9 @@ func (w *Workspace) Grant(ctx context.Context, permission jsontext.Value, action
 
 // Events opens the workspace's server-sent event stream and returns the data
 // field of each event. The channel closes when the stream ends or ctx is
-// cancelled. A server that drops a slow client ends the stream; callers
-// reconnect, report the current session again, and re-read state.
+// cancelled. A server that drops a slow client ends the stream; calling Events
+// again subscribes with the same client ID. A server that no longer knows the
+// workspace, such as one that restarted, answers with ErrNotFound.
 func (w *Workspace) Events(ctx context.Context) (<-chan []byte, error) {
 	u := w.c.base + w.path("/events") + "?client_id=" + url.QueryEscape(w.clientID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -255,6 +256,9 @@ func (w *Workspace) Events(ctx context.Context) (<-chan []byte, error) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("events: %w", ErrNotFound)
+		}
 		return nil, fmt.Errorf("events: %s", resp.Status)
 	}
 
@@ -283,6 +287,9 @@ func pump(ctx context.Context, body io.ReadCloser, out chan<- []byte) {
 		}
 	}
 }
+
+// Ping checks that the workspace's server is reachable and healthy.
+func (w *Workspace) Ping(ctx context.Context) error { return w.c.Ping(ctx) }
 
 // Ping checks that the server is reachable and healthy.
 func (c *Client) Ping(ctx context.Context) error {

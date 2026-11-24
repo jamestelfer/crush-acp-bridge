@@ -56,7 +56,7 @@ A prompt waits on its session's `turn` channel for the end the translator report
 
 ## Reconnect
 
-When a stream ends while the bridge runs, the directory's turns fail and the bridge reconnects with backoff, restoring the mode and current sessions. Prompts wait for the reconnect. Details and limits are in [ADR 8](adr/0008-turn-failure-on-event-stream-loss.md).
+When a stream ends while the bridge runs and the server still serves the workspace, the bridge subscribes again as the same client. Turns in flight keep waiting; the bridge reports its sessions again and catches up on each turn from the stored messages. When the server is gone or has forgotten the workspace, the directory's turns fail and the bridge reconnects with backoff, restoring the mode and current sessions. Prompts wait for the reconnect. Details and limits are in [ADR 10](adr/0010-resubscribe-on-event-stream-loss.md).
 
 ## Locking and ownership
 
@@ -64,4 +64,5 @@ When a stream ends while the bridge runs, the directory's turns fail and the bri
 - Each workspace's `trMu` is held while an event is translated and forwarded, so the editor sees updates in order. `session/load` holds it while it replays, so the live stream waits.
 - The directory's translator lives for the bridge's lifetime, across reconnects and loads.
 - A session's `active` flag is set while a prompt waits, so turn ends from other clients do not complete a later prompt. The `turn` channel holds at most one pending end.
-- The `follow` goroutine owns the event channel and replaces the backend on reconnect.
+- The `follow` goroutine owns the event channel, re-subscribes, and replaces the backend on reconnect.
+- `Agent.asking` holds the IDs of permission requests the editor is answering, so a re-delivered request is not asked twice.

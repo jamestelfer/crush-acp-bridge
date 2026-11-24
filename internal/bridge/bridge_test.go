@@ -106,6 +106,17 @@ type fakeCrush struct {
 	stored     []crush.Session // returned by Sessions
 	history    trace           // the stored messages' source when set; else script
 	down       atomic.Bool
+	stale      atomic.Bool  // the server restarted and no longer knows the workspace
+	gone       atomic.Bool  // nothing answers: Ping fails
+	subscribes atomic.Int32 // Events calls that succeeded
+}
+
+// Ping fails once the server has gone.
+func (f *fakeCrush) Ping(context.Context) error {
+	if f.gone.Load() {
+		return errors.New("dial unix crush.sock: connect: connection refused")
+	}
+	return nil
 }
 
 func (f *fakeCrush) Sessions(context.Context) ([]crush.Session, error) {
@@ -223,8 +234,23 @@ func (f *fakeCrush) deletedSessions() []string {
 }
 
 func (f *fakeCrush) Events(context.Context) (<-chan []byte, error) {
+	if f.gone.Load() {
+		return nil, errors.New("events: dial unix crush.sock: connect: connection refused")
+	}
+	if f.stale.Load() {
+		return nil, fmt.Errorf("events: GET /workspaces/ws-1/events: %w", crush.ErrNotFound)
+	}
 	f.down.Store(false)
+	f.subscribes.Add(1)
 	return f.current(), nil
+}
+
+// open is what a fresh workspace open returns: the backend, known to the
+// server again.
+func (f *fakeCrush) open() *fakeCrush {
+	f.stale.Store(false)
+	f.gone.Store(false)
+	return f
 }
 
 func (f *fakeCrush) current() chan []byte {
@@ -233,8 +259,23 @@ func (f *fakeCrush) current() chan []byte {
 	return f.events
 }
 
-// drop ends the current event stream, as a lost connection does. The next
-// Events call returns a fresh stream.
+// restart ends the event stream as a server restart does: the server answers
+// but no longer knows the workspace until it is opened again.
+func (f *fakeCrush) restart() {
+	f.stale.Store(true)
+	f.drop()
+}
+
+// kill ends the event stream and leaves nothing answering until the workspace
+// is opened again.
+func (f *fakeCrush) kill() {
+	f.gone.Store(true)
+	f.drop()
+}
+
+// drop ends the current event stream, as a server that drops a slow client
+// does. The server keeps running; the next Events call returns a fresh
+// stream.
 func (f *fakeCrush) drop() {
 	f.down.Store(true) // like a dead server, refuse work until resubscribed
 	f.mu.Lock()
@@ -343,7 +384,12 @@ func (*editor) CompleteElicitation(context.Context, acp.CompleteElicitationNotif
 // connect serves the bridge with a single backend for every directory.
 func connect(t *testing.T, backend bridge.Backend, ed *editor, opts ...bridge.Option) *acp.ClientSideConnection {
 	t.Helper()
-	return connectWith(t, func(context.Context, string) (bridge.Backend, error) { return backend, nil }, ed, opts...)
+	return connectWith(t, func(context.Context, string) (bridge.Backend, error) {
+		if f, ok := backend.(*fakeCrush); ok {
+			return f.open(), nil
+		}
+		return backend, nil
+	}, ed, opts...)
 }
 
 // connectWith serves the bridge over in-memory pipes and returns the editor's
