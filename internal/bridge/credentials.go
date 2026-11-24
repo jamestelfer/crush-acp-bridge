@@ -110,6 +110,11 @@ func joinAnd(s []string) string {
 // unusableProvider reports the provider of the current model when Crush
 // offers none of its models: Crush dropped it for missing credentials. An
 // empty provider reported unusable means Crush has no provider at all.
+//
+// Crush keeps a dropped provider's model current only when no provider is
+// left. While another provider has credentials, Crush switches to that
+// provider's default model and saves the switch, so the bridge sees a usable
+// model and cannot tell the user's choice was replaced.
 func unusableProvider(models crush.Models) (provider string, unusable bool) {
 	p := models.Current.Provider
 	if p == "" {
@@ -120,7 +125,7 @@ func unusableProvider(models crush.Models) (provider string, unusable bool) {
 
 // noProviderError explains a prompt Crush refused because it has no agent:
 // the current model's provider, or every provider, lacks credentials.
-func (a *Agent) noProviderError(ctx context.Context, backend Backend, cause error) error {
+func (a *Agent) noProviderError(ctx context.Context, backend Backend) error {
 	models, err := backend.Models(ctx)
 	if err != nil {
 		a.log.Warn("crush models not listed", "error", err)
@@ -128,15 +133,20 @@ func (a *Agent) noProviderError(ctx context.Context, backend Backend, cause erro
 	provider, unusable := unusableProvider(models)
 	switch {
 	case err != nil || !unusable:
-		return internalError(fmt.Sprintf("Crush has no usable provider (%v). Set the provider's credentials %s.", cause, where))
+		return internalError("Crush has no usable provider. Set the provider's credentials " + where + ".")
 	case provider == "":
 		return internalError(fmt.Sprintf(
 			"Crush has no provider with credentials. Set a provider's API key, such as ANTHROPIC_API_KEY or OPENAI_API_KEY, %s.", where))
 	}
 	name, fix := describe(provider)
 	model := cmp.Or(models.Current.Model, "the current model")
-	return acp.NewRequestError(-32603, fmt.Sprintf("Crush cannot run %s: %s has no credentials. %s", model, name, fix),
-		credentialData{Provider: provider, Variables: credentials[provider].vars})
+	return credentialsError(fmt.Sprintf("Crush cannot run %s: %s has no credentials. %s", model, name, fix), provider)
+}
+
+// credentialsError is a JSON-RPC internal error carrying msg, with the
+// provider and its variables as data.
+func credentialsError(msg, provider string) error {
+	return acp.NewRequestError(-32603, msg, credentialData{Provider: provider, Variables: credentials[provider].vars})
 }
 
 // turnFailure is the editor's error for a turn Crush ended with an error. A
@@ -152,9 +162,7 @@ func turnFailure(provider, title, detail string) error {
 		return internalError(msg)
 	}
 	name, fix := describe(provider)
-	return acp.NewRequestError(-32603,
-		fmt.Sprintf("%s. Check the credentials of %s. %s", msg, name, fix),
-		credentialData{Provider: provider, Variables: credentials[provider].vars})
+	return credentialsError(fmt.Sprintf("%s. Check the credentials of %s. %s", msg, name, fix), provider)
 }
 
 // credentialWords mark a provider error about credentials.

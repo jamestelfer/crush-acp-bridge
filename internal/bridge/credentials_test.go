@@ -3,6 +3,7 @@ package bridge_test
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -86,6 +87,42 @@ func TestPromptRefusedForAnUnknownProviderNamesIt(t *testing.T) {
 
 	assert.Contains(t, reqErr.Message, "my-proxy")
 	assert.Contains(t, reqErr.Message, "api_key")
+}
+
+func TestPromptRefusedWhenTheProviderLooksUsableGivesGeneralAdvice(t *testing.T) {
+	for name, configure := range map[string]func(*fakeCrush){
+		"models not listed": func(f *fakeCrush) { f.modelsErr = errors.New("GET /config: 500 Internal Server Error") },
+		"provider listed": func(f *fakeCrush) {
+			f.models.Available = []crush.Model{{Provider: "vertexai", ID: "gemini-4-hydrogen"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			backend := noProviderCrush(vertexModel)
+			configure(backend)
+			conn := connect(t, backend, &editor{})
+			sid := start(t, conn)
+
+			reqErr := promptError(t, conn, sid)
+
+			assert.Equal(t, "Crush has no usable provider. Set the provider's credentials in the environment of the Crush server, "+
+				"then restart it. A server on this machine takes the environment of the first client to open the directory; "+
+				"a server on another machine uses its own.", reqErr.Message, "no internal paths or repeated causes")
+		})
+	}
+}
+
+func TestTurnFailingWithStyledDetailsShowsPlainText(t *testing.T) {
+	link := "\x1b]8;id=copilot;https://github.com/settings/copilot/features\x1b\\" +
+		"\x1b[4;38;2;0;255;178mhttps://github.com/settings/copilot/features\x1b[0m\x1b]8;;\x1b\\"
+	backend := newFakeCrush("sess-1", errorFinish(t, "sess-1", "copilot", "Copilot model not enabled",
+		`"GPT-9" is not enabled in Copilot. Go to the following page to enable it. `+link))
+	conn := connect(t, backend, &editor{})
+	sid := start(t, conn)
+
+	reqErr := promptError(t, conn, sid)
+
+	assert.Contains(t, reqErr.Message, "enable it. https://github.com/settings/copilot/features")
+	assert.NotContains(t, reqErr.Message, "\x1b")
 }
 
 // errorFinish is a Crush event ending the session's turn with an error.

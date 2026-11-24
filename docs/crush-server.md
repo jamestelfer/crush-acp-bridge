@@ -66,7 +66,7 @@ The server holds the main agent per workspace, in memory, starting on `coder`. N
 
 Clients send their environment in `env` when opening a workspace. The server resolves provider credentials, such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION`, from it. The first client to open a project sets its environment for every later client.
 
-Crush drops a provider whose credentials are missing when it loads the workspace's configuration (`internal/config/load.go`): Vertex AI without both `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION`, Bedrock without AWS credentials, and any other provider whose `api_key` resolves empty. `GET …/config` still names the dropped provider in `models.large`, but lists none of its models. With no provider left, Crush builds no agent and refuses every prompt with `400`.
+Crush drops a provider whose credentials are missing when it loads the workspace's configuration (`internal/config/load.go`): Vertex AI without both `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION`, Bedrock without AWS credentials, and any other provider whose `api_key` resolves empty. With no provider left, Crush builds no agent and refuses every prompt with `400`; `GET …/config` then still names the dropped provider in `models.large`, but lists none of its models. While another provider has credentials, Crush instead replaces a selected model whose provider it dropped with that provider's default model, and saves the replacement to the global configuration as the preferred model.
 
 ## Lifetime
 

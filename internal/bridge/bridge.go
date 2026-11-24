@@ -345,11 +345,13 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	}
 	began := time.Now()
 	a.log.Info("prompt started", "session_id", string(req.SessionId))
-	if err := a.backend(s.cwd).Prompt(ctx, string(req.SessionId), p); err != nil {
-		if errors.Is(err, crush.ErrNoProvider) {
-			err = a.noProviderError(ctx, a.backend(s.cwd), err)
+	backend := a.backend(s.cwd)
+	if cause := backend.Prompt(ctx, string(req.SessionId), p); cause != nil {
+		err := cause
+		if errors.Is(cause, crush.ErrNoProvider) {
+			err = a.noProviderError(ctx, backend)
 		}
-		a.log.Error("prompt rejected by crush", "session_id", string(req.SessionId), "error", err)
+		a.log.Error("prompt rejected by crush", "session_id", string(req.SessionId), "error", err, "cause", cause)
 		return acp.PromptResponse{}, err
 	}
 

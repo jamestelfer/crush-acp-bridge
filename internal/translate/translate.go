@@ -8,6 +8,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"regexp"
 )
 
 // Kind identifies the type of an Update.
@@ -350,9 +351,20 @@ func (t *Translator) finish(msg message, data jsontext.Value) ([]Update, error) 
 	t.ended[msg.ID] = true
 	u := Update{Kind: TurnEnded, MessageID: msg.ID, StopReason: reason, Provider: msg.Provider}
 	if d.Reason == "error" {
-		u.ErrorTitle, u.ErrorDetail = d.Message, d.Details
+		u.ErrorTitle, u.ErrorDetail = stripEscapes(d.Message), stripEscapes(d.Details)
 	}
 	return []Update{u}, nil
+}
+
+// escapes matches terminal escape sequences: OSC strings such as hyperlinks,
+// CSI sequences such as colour, and other two-byte escapes.
+var escapes = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z\\-_]`)
+
+// stripEscapes removes the terminal styling Crush renders into some error
+// details, such as the lipgloss hyperlink in its Copilot "model not enabled"
+// finish, so an editor shows plain text.
+func stripEscapes(s string) string {
+	return escapes.ReplaceAllString(s, "")
 }
 
 func (t *Translator) permission(raw jsontext.Value) ([]Update, error) {

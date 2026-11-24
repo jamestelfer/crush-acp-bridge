@@ -110,7 +110,9 @@ Configure the editor to run `crush-acp-bridge` as an ACP agent over stdio. For a
 Crush reads provider credentials from environment variables, such as `ANTHROPIC_API_KEY`, or
 `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` for Vertex AI. It resolves them when a client first opens a
 directory, and drops every provider whose variables are missing. A directory with no usable provider
-refuses every prompt.
+refuses every prompt. When another provider still has credentials, Crush replaces a model whose provider
+it dropped with that provider's default model and saves the replacement as your preferred model. The
+bridge cannot detect this case: check the model the editor shows after changing credentials.
 
 The bridge sends its environment when it opens a directory on a local server, as Crush clients do: a Unix
 socket, a named pipe, or a `--crush-url` whose host is `localhost` or a loopback address. A server on another
