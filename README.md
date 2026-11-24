@@ -56,11 +56,7 @@ crush-acp-bridge --shared
 - Windows support is not verified live on Windows. It is cross-compiled, and its tests run against a fake
   Crush in the Windows CI job. `--managed` remains the fallback there.
 
-The bridge sends its environment when it opens a project on a local server, as Crush clients do: a Unix
-socket, a named pipe, or a `--crush-url` whose host is `localhost` or a loopback address. A server on another machine
-receives no environment, and the bridge refuses a socket or pipe whose server runs as another user. Set provider
-variables such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` on the bridge. The first client to open a project sets
-its environment for every later client.
+Set provider credentials on the bridge. See [Provider credentials](#provider-credentials).
 
 ### Self-contained: one server per bridge
 
@@ -83,8 +79,7 @@ directory.
 crush server --host http://127.0.0.1:8484
 ```
 
-The server needs a configured provider. Providers that read environment variables, such as Vertex AI
-(`VERTEXAI_PROJECT`, `VERTEXAI_LOCATION`), read them from the process that starts the server.
+The server needs a provider with credentials. See [Provider credentials](#provider-credentials).
 
 The server exits 60 seconds after its last workspace is released, or 60 seconds after it starts if no
 client opens one. Start the bridge's first session within that window, or raise the limit with
@@ -109,6 +104,36 @@ Configure the editor to run `crush-acp-bridge` as an ACP agent over stdio. For a
 ```
 
 `--crush-url` also accepts a Unix socket: `unix:///path/to/crush.sock`.
+
+### Provider credentials
+
+Crush reads provider credentials from environment variables, such as `ANTHROPIC_API_KEY`, or
+`VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` for Vertex AI. It resolves them when a client first opens a
+directory, and drops every provider whose variables are missing. A directory with no usable provider
+refuses every prompt.
+
+The bridge sends its environment when it opens a directory on a local server, as Crush clients do: a Unix
+socket, a named pipe, or a `--crush-url` whose host is `localhost` or a loopback address. A server on another
+machine receives no environment. The bridge refuses a socket or pipe whose server runs as another user.
+
+The first client to open a directory sets its environment for every later client. A later bridge with
+different variables changes nothing until the server restarts.
+
+| Mode | Where to set the credentials |
+|---|---|
+| `--shared` | The bridge's environment, such as Paseo's provider `env`. The bridge sends it to the shared server, whichever client started it. Every Crush TUI on the same server needs the same variables: if a TUI opens the directory first, its environment wins. To change them, stop every client of the server and wait for its idle timeout. |
+| `--managed` | The bridge's environment. The child `crush server` inherits it, and the bridge also sends it on open. Restart the bridge to change them. |
+| External server on this machine | The bridge's environment, as for `--shared`, or the shell that starts `crush server`. Restart the server to change them. |
+| External server on another machine | The environment of the process that starts `crush server` on that machine. The bridge sends nothing. |
+
+Credentials that are not environment variables live on the machine that runs the server: an `api_key` in
+Crush's `crush.json`, Google Application Default Credentials for Vertex AI
+(`gcloud auth application-default login`), AWS profiles for Bedrock, or a `crush login` sign-in.
+
+When a prompt fails for want of credentials, the editor receives an error naming the provider of the current
+model and the variables it reads. The error's `data` carries the same as `provider` and `variables`. A turn
+that a provider rejects, for example for an invalid key, fails with Crush's account of the error. At
+`session/new`, the bridge logs a warning when Crush cannot run the current model.
 
 ### Flags
 
@@ -215,6 +240,8 @@ Supported:
   choice. Dismissing a question cancels the batch and ends Crush's turn. An editor that approves
   permission requests without asking answers each question with Yes or its first choice.
 - `session/cancel`. The prompt returns the `cancelled` stop reason.
+- Turn failures. A turn Crush ends with an error fails the prompt with Crush's account of it. A prompt that
+  fails for want of provider credentials names the provider and its variables.
 - Image and embedded-resource prompts, sent to Crush as attachments. Text resources are inlined into the
   prompt; an image is refused when Crush's current model cannot see it. Resource links appear in the prompt
   text for Crush to read itself. A prompt needs text alongside its attachments.

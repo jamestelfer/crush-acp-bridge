@@ -29,8 +29,11 @@ All paths are under `/v1`. Workspace paths are under `/workspaces/{id}`, where `
 
 ## Status codes
 
+A failed request carries a JSON body, `{"message": "…"}`. The client includes the message in its error.
+
 - `409 Conflict`: the session is busy. Returned for a prompt while a turn runs, and for a main agent change during a turn. The client maps it to `crush.ErrBusy`.
 - `404 Not Found`: no such workspace, session or resource. The client maps it to `crush.ErrNotFound`.
+- `400 Bad Request` with `agent coordinator not initialized` for a prompt: the workspace has no agent, because no provider had credentials when it opened. The client maps it to `crush.ErrNoProvider`.
 - `500` with `failed to connect to database: data directory already in use by another crush process`: another server holds the project's data directory.
 
 ## Events
@@ -44,7 +47,7 @@ Each SSE `data:` line is a JSON envelope:
 The outer `type` names the stream; the inner `type` is `created` or `updated`; the inner `payload` is the object. Types seen in traces: `session`, `client_session`, `message`, `permission_request`, `permission_notification`, `question_batch_request`, `question_batch_notification`, `agent_event`, `file` and `run_complete`. The bridge reads only `message`, `permission_request` and `question_batch_request`.
 
 - `message` payloads are whole-message snapshots, resent as the message grows. Each carries `id`, `session_id`, `role` and `parts`. Part types include `text`, `reasoning`, `tool_call`, `tool_result` and `finish`.
-- An assistant `finish` part's `reason` is `end_turn`, `canceled`, `max_tokens`, `error`, `content_filter` or `unknown`, or a value for a tool round trip that does not end the turn.
+- An assistant `finish` part's `reason` is `end_turn`, `canceled`, `max_tokens`, `error`, `content_filter` or `unknown`, or a value for a tool round trip that does not end the turn. An `error` finish carries `message`, a title such as `Provider Error` or `Unauthorized`, and `details`. An assistant message also carries the `provider` and `model` that ran it.
 - `run_complete` arrives before the final message update when a turn is cancelled, so it does not mark the end of a turn.
 - `permission_request` payloads carry `id`, `session_id`, `tool_call_id`, `tool_name`, `description`, `action` and `params`. For `edit`, `multiedit` and `write`, `params` holds `file_path`, `old_content` and `new_content`.
 - `question_batch_request` payloads carry `id` (the batch), `session_id`, `tool_call_id`, `questions`, and `confirm_title` and `confirm_description` for a batch of several. Each question has `id`, `type` (`yes_no`, `single_choice`, `multi_choice` or `free_text`), `label`, `question`, `description` and, for the choice types, `choices` of `id`, `label` and `description`. Crush's `question` tool raises it and blocks until the batch is answered or cancelled. Only an interactive agent has the tool; a workspace that Crush opens for a client gets one. `question_batch_notification` (`batch_id`, `session_id`) follows when the batch is resolved.
@@ -62,6 +65,8 @@ The server holds the main agent per workspace, in memory, starting on `coder`. N
 ## Environment
 
 Clients send their environment in `env` when opening a workspace. The server resolves provider credentials, such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION`, from it. The first client to open a project sets its environment for every later client.
+
+Crush drops a provider whose credentials are missing when it loads the workspace's configuration (`internal/config/load.go`): Vertex AI without both `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION`, Bedrock without AWS credentials, and any other provider whose `api_key` resolves empty. `GET …/config` still names the dropped provider in `models.large`, but lists none of its models. With no provider left, Crush builds no agent and refuses every prompt with `400`.
 
 ## Lifetime
 
