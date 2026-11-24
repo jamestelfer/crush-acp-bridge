@@ -109,10 +109,17 @@ type fakeCrush struct {
 	stale      atomic.Bool  // the server restarted and no longer knows the workspace
 	gone       atomic.Bool  // nothing answers: Ping fails
 	subscribes atomic.Int32 // Events calls that succeeded
+
+	messageReads atomic.Int32 // Messages calls
+	onPing       func()       // called by Ping before it answers, when set
+	beforePrompt func()       // called by Prompt before Crush stores the prompt, when set
 }
 
 // Ping fails once the server has gone.
 func (f *fakeCrush) Ping(context.Context) error {
+	if f.onPing != nil {
+		f.onPing()
+	}
 	if f.gone.Load() {
 		return errors.New("dial unix crush.sock: connect: connection refused")
 	}
@@ -129,6 +136,7 @@ func (f *fakeCrush) Sessions(context.Context) ([]crush.Session, error) {
 // script: the last snapshot of each message, in the order the messages first
 // appeared.
 func (f *fakeCrush) Messages(_ context.Context, sessionID string) ([]jsontext.Value, error) {
+	f.messageReads.Add(1)
 	var order []string
 	last := map[string]jsontext.Value{}
 	source := f.script
@@ -293,6 +301,9 @@ func (f *fakeCrush) currentSessions() []string {
 func (f *fakeCrush) Prompt(_ context.Context, _ string, text string) error {
 	if f.down.Load() {
 		return errors.New("dial unix crush.sock: connect: connection refused")
+	}
+	if f.beforePrompt != nil {
+		f.beforePrompt()
 	}
 	// Hold mu while sending so drop cannot close the stream mid-turn.
 	f.mu.Lock()

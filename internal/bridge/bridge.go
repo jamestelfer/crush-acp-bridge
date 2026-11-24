@@ -212,6 +212,14 @@ func (s *session) takeSent(text string) bool {
 	return true
 }
 
+// pendingSent returns the text of the editor's prompt while Crush has not yet
+// echoed it back.
+func (s *session) pendingSent() string {
+	s.sentMu.Lock()
+	defer s.sentMu.Unlock()
+	return s.sent
+}
+
 func (s *session) setSent(text string) {
 	s.sentMu.Lock()
 	defer s.sentMu.Unlock()
@@ -304,21 +312,22 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 		return acp.PromptResponse{}, err
 	}
 
-	s.active.Store(true)
-	defer s.active.Store(false)
-	select { // discard a signal left over from a turn that ended after its prompt gave up
-	case <-s.turn:
-	default:
-	}
-
 	var text strings.Builder
 	for _, b := range req.Prompt {
 		if b.Text != nil {
 			text.WriteString(b.Text.Text)
 		}
 	}
+	// sent is set before active, so a catch-up that sees the turn active
+	// also sees which prompt it waits for.
 	s.setSent(text.String())
 	defer s.setSent("")
+	s.active.Store(true)
+	defer s.active.Store(false)
+	select { // discard a signal left over from a turn that ended after its prompt gave up
+	case <-s.turn:
+	default:
+	}
 	began := time.Now()
 	a.log.Info("prompt started", "session_id", string(req.SessionId))
 	if err := a.backend(s.cwd).Prompt(ctx, string(req.SessionId), text.String()); err != nil {
@@ -502,6 +511,15 @@ func (a *Agent) follow(events <-chan []byte, cwd string, w *workspace) {
 		}
 		a.log.Warn("crush event stream closed", "cwd", cwd)
 
+		// Prompts sent from here on wait until the stream is back, whether by
+		// resubscribing or by reconnecting, rather than reach a server that
+		// may be gone.
+		a.mu.Lock()
+		if _, ok := a.reconnects[cwd]; !ok {
+			a.reconnects[cwd] = make(chan struct{})
+		}
+		a.mu.Unlock()
+
 		// A stream that ends again before it delivers anything backs off, so
 		// a server that accepts and drops at once is not hammered.
 		if received {
@@ -515,13 +533,16 @@ func (a *Agent) follow(events <-chan []byte, cwd string, w *workspace) {
 		case <-time.After(delay):
 		}
 		if next := a.resubscribe(cwd, w); next != nil {
+			a.mu.Lock()
+			if done, ok := a.reconnects[cwd]; ok {
+				close(done)
+				delete(a.reconnects, cwd)
+			}
+			a.mu.Unlock()
 			events = next
 			continue
 		}
 
-		a.mu.Lock()
-		a.reconnects[cwd] = make(chan struct{})
-		a.mu.Unlock()
 		a.failTurns(cwd)
 		if events = a.reconnect(cwd); events == nil {
 			return
@@ -569,8 +590,14 @@ func (a *Agent) catchUp(ctx context.Context, b Backend, cwd string, w *workspace
 			a.log.Warn("turn not caught up after the event stream closed", "session_id", id, "error", err)
 			continue
 		}
+		turn := currentTurn(messages)
+		if pending := s.pendingSent(); pending != "" && userText(turn) != pending {
+			// Crush has not stored the editor's prompt yet, so the last user
+			// message starts an earlier turn. The live stream delivers this one.
+			continue
+		}
 		w.trMu.Lock()
-		for _, raw := range currentTurn(messages) {
+		for _, raw := range turn {
 			updates, err := w.tr.FeedMessage(raw)
 			if err != nil {
 				a.log.Warn("stored message not translated", "session_id", id, "error", err)
@@ -597,6 +624,34 @@ func currentTurn(messages []jsontext.Value) []jsontext.Value {
 		}
 	}
 	return messages
+}
+
+// userText returns the visible text of the user message that starts turn, or
+// "" when turn does not start with one.
+func userText(turn []jsontext.Value) string {
+	if len(turn) == 0 {
+		return ""
+	}
+	var m struct {
+		Role  string `json:"role"`
+		Parts []struct {
+			Type string `json:"type"`
+			Data struct {
+				Text   string `json:"text"`
+				Hidden bool   `json:"hidden"`
+			} `json:"data"`
+		} `json:"parts"`
+	}
+	if json.Unmarshal(turn[0], &m) != nil || m.Role != "user" {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range m.Parts {
+		if p.Type == "text" && !p.Data.Hidden {
+			b.WriteString(p.Data.Text)
+		}
+	}
+	return b.String()
 }
 
 // failTurns ends every turn waiting in cwd with errStreamLost.

@@ -56,7 +56,7 @@ A prompt waits on its session's `turn` channel for the end the translator report
 
 ## Reconnect
 
-When a stream ends while the bridge runs and the server still serves the workspace, the bridge subscribes again as the same client. Turns in flight keep waiting; the bridge reports its sessions again and catches up on each turn from the stored messages. When the server is gone or has forgotten the workspace, the directory's turns fail and the bridge reconnects with backoff, restoring the mode and current sessions. Prompts wait for the reconnect. Details and limits are in [ADR 10](adr/0010-resubscribe-on-event-stream-loss.md).
+When a stream ends while the bridge runs and the server still serves the workspace, the bridge subscribes again as the same client. Turns in flight keep waiting; the bridge reports its sessions again and catches up on each turn from the stored messages. When the server is gone or has forgotten the workspace, the directory's turns fail and the bridge reconnects with backoff, restoring the mode and current sessions. Prompts sent after the stream ends wait until it is back. Details and limits are in [ADR 10](adr/0010-resubscribe-on-event-stream-loss.md).
 
 ## Locking and ownership
 

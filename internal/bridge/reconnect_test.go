@@ -106,7 +106,7 @@ func TestDroppedEventStreamKeepsTheTurnAndResubscribes(t *testing.T) {
 	conn := connectWith(t, open, ed)
 	sid := start(t, conn)
 
-	done := promptAsync(t, conn, sid, "explain TCP")
+	done := promptAsync(t, conn, sid, tcpPrompt)
 	require.Eventually(t, func() bool { return agentText(ed) != "" }, 2*time.Second, 10*time.Millisecond)
 	backend.drop() // the server dropped a slow client and keeps running the turn
 
@@ -134,7 +134,7 @@ func TestTurnThatEndsWhileTheStreamIsDownStillCompletes(t *testing.T) {
 	conn := connect(t, backend, ed)
 	sid := start(t, conn)
 
-	done := promptAsync(t, conn, sid, "explain TCP")
+	done := promptAsync(t, conn, sid, tcpPrompt)
 	require.Eventually(t, func() bool { return agentText(ed) != "" }, 2*time.Second, 10*time.Millisecond)
 	backend.drop()
 
@@ -163,7 +163,7 @@ func TestResubscribeIgnoresEarlierTurnsOfAResumedSession(t *testing.T) {
 	_, err := conn.ResumeSession(t.Context(), acp.ResumeSessionRequest{SessionId: sid, Cwd: "/work/proj", McpServers: []acp.McpServer{}})
 	require.NoError(t, err)
 
-	done := promptAsync(t, conn, sid, "explain TCP")
+	done := promptAsync(t, conn, sid, tcpPrompt)
 	require.Eventually(t, func() bool { return agentText(ed) != "" }, 2*time.Second, 10*time.Millisecond)
 	backend.drop()
 	require.Eventually(t, func() bool { return backend.subscribes.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
@@ -283,7 +283,7 @@ func TestRestartedServerFailsTheTurnAndTheBridgeReconnects(t *testing.T) {
 	conn := connectWith(t, open, ed)
 	sid := start(t, conn)
 
-	done := promptAsync(t, conn, sid, "explain TCP")
+	done := promptAsync(t, conn, sid, tcpPrompt)
 	require.Eventually(t, func() bool { return agentText(ed) != "" }, 2*time.Second, 10*time.Millisecond)
 	sentBefore := agentText(ed)
 	backend.restart()
@@ -320,7 +320,7 @@ func TestServerGoneForGoodEndsTheTurnAndIsLogged(t *testing.T) {
 	conn := connectWith(t, open, ed, bridge.WithLogger(logs.logger()))
 	sid := start(t, conn)
 
-	done := promptAsync(t, conn, sid, "explain TCP")
+	done := promptAsync(t, conn, sid, tcpPrompt)
 	require.Eventually(t, func() bool { return agentText(ed) != "" }, 2*time.Second, 10*time.Millisecond)
 	backend.kill()
 
@@ -346,7 +346,7 @@ func TestPromptDuringAReconnectWaitsForIt(t *testing.T) {
 	conn := connectWith(t, open, ed)
 	sid := start(t, conn)
 
-	done := promptAsync(t, conn, sid, "explain TCP")
+	done := promptAsync(t, conn, sid, tcpPrompt)
 	require.Eventually(t, func() bool { return agentText(ed) != "" }, 2*time.Second, 10*time.Millisecond)
 	backend.restart()
 	require.ErrorContains(t, awaitPrompt(t, done).err, "lost")
@@ -356,4 +356,115 @@ func TestPromptDuringAReconnectWaitsForIt(t *testing.T) {
 
 	require.Equal(t, acp.StopReasonEndTurn, resp.StopReason, "the prompt waited for the reconnect instead of failing")
 	require.Equal(t, int32(2), opens.Load())
+}
+
+func TestCatchUpBeforeThePromptIsStoredIgnoresTheEarlierTurn(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	turn := tr.firstTurn(t, "end_turn")
+	sessionID := tr.sessionID(t)
+	backend := newFakeCrush(sessionID, turn)
+	backend.history = trace{ // only the finished turn from before the resume is stored
+		storedMessage(sessionID, "old-u", "user", `{"type":"text","data":{"text":"hello"}}`),
+		storedMessage(sessionID, "old-a", "assistant",
+			`{"type":"text","data":{"text":"earlier answer"}},{"type":"finish","data":{"reason":"end_turn"}}`),
+	}
+	backend.stored = []crush.Session{{ID: sessionID, MessageCount: 2}}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	backend.beforePrompt = func() {
+		close(entered)
+		<-release
+	}
+	ed := &editor{}
+	conn := connect(t, backend, ed)
+	initialize(t, conn)
+	sid := acp.SessionId(sessionID)
+	_, err := conn.ResumeSession(t.Context(), acp.ResumeSessionRequest{SessionId: sid, Cwd: "/work/proj", McpServers: []acp.McpServer{}})
+	require.NoError(t, err)
+
+	done := promptAsync(t, conn, sid, tcpPrompt)
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "the prompt did not reach crush")
+	}
+	reads := backend.messageReads.Load()
+	backend.drop() // the stream drops before Crush stores the new user message
+	require.Eventually(t, func() bool { return backend.messageReads.Load() > reads }, 5*time.Second, 10*time.Millisecond,
+		"the bridge resubscribes and reads the stored messages")
+	assert.Never(t, func() bool { return len(done) > 0 }, 200*time.Millisecond, 10*time.Millisecond,
+		"the earlier turn's finish does not end the prompt")
+	close(release)
+
+	r := awaitPrompt(t, done)
+	require.NoError(t, r.err)
+	assert.Equal(t, acp.StopReasonEndTurn, r.resp.StopReason)
+	assert.Equal(t, fullText(t, turn), agentText(ed), "the prompt shows its own turn and not the earlier one")
+}
+
+func TestPromptDuringAResubscribeWaitsForIt(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	turn := tr.firstTurn(t, "end_turn")
+	backend := newFakeCrush(tr.sessionID(t), turn)
+	pinging := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	backend.onPing = func() {
+		once.Do(func() { close(pinging) })
+		<-release
+	}
+	ed := &editor{}
+	conn := connect(t, backend, ed)
+	sid := start(t, conn)
+
+	backend.drop()
+	select {
+	case <-pinging:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "the bridge did not check the server")
+	}
+	done := promptAsync(t, conn, sid, tcpPrompt)
+	assert.Never(t, func() bool { return len(done) > 0 }, 200*time.Millisecond, 10*time.Millisecond,
+		"the prompt waits while the bridge resubscribes")
+	close(release)
+
+	r := awaitPrompt(t, done)
+	require.NoError(t, r.err, "the prompt reaches crush once the stream is back")
+	assert.Equal(t, acp.StopReasonEndTurn, r.resp.StopReason)
+}
+
+func TestPromptWhileTheServerIsCheckedWaitsForTheReconnect(t *testing.T) {
+	tr := loadTrace(t, "long-text-cancel.sse")
+	turn := tr.firstTurn(t, "end_turn")
+	backend := newFakeCrush(tr.sessionID(t), turn)
+	pinging := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	backend.onPing = func() {
+		once.Do(func() { close(pinging) })
+		<-release
+	}
+	var opens atomic.Int32
+	open := func(context.Context, string) (bridge.Backend, error) {
+		opens.Add(1)
+		return backend.open(), nil
+	}
+	conn := connectWith(t, open, &editor{})
+	sid := start(t, conn)
+
+	backend.kill()
+	select {
+	case <-pinging:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "the bridge did not check the server")
+	}
+	done := promptAsync(t, conn, sid, tcpPrompt)
+	assert.Never(t, func() bool { return len(done) > 0 }, 200*time.Millisecond, 10*time.Millisecond,
+		"the prompt waits while the bridge checks the server")
+	close(release) // the check fails, so the bridge reopens the workspace
+
+	r := awaitPrompt(t, done)
+	require.NoError(t, r.err, "the prompt reaches the reopened workspace")
+	assert.Equal(t, acp.StopReasonEndTurn, r.resp.StopReason)
+	assert.Equal(t, int32(2), opens.Load())
 }

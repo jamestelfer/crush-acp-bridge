@@ -18,7 +18,8 @@ When a directory's event stream ends while the bridge runs, the bridge waits bri
 
 - Turns in flight keep waiting.
 - The bridge reports each session in the directory as current again.
-- For each turn in flight, the bridge reads the session's stored messages from the last user message on and feeds them through the directory's translator. The editor receives only content it has not seen, and a turn that ended during the gap ends with Crush's stop reason. Earlier turns are skipped, so a resumed session's history is not replayed.
+- For each turn in flight, the bridge reads the session's stored messages from the last user message on and feeds them through the directory's translator. The editor receives only content it has not seen, and a turn that ended during the gap ends with Crush's stop reason. Earlier turns are skipped, so a resumed session's history is not replayed. While Crush has not yet stored the editor's prompt, the last user message's text differs from it; catch-up then skips the session and the live stream delivers the turn.
+- Prompts sent from the moment the stream ends wait until it is back, by re-subscribing or by reconnecting.
 - The bridge tracks the permission requests the editor is answering, by ID. A request Crush re-delivers while the editor answers it is not asked again.
 - A stream that ends again before delivering an event backs off before the next attempt: from 100 ms, doubling, capped at 5 seconds.
 
@@ -34,6 +35,7 @@ The directory's translator spans re-subscribes and reconnects, so content the ed
 ## Consequences
 
 - A dropped slow client no longer costs the editor its turn, and leaves no stale client on the server.
+- A prompt whose text matches the previous user message, caught up before Crush stores it, cannot be told apart from that earlier turn.
 - Catch-up reads only the stored messages, so a tool call's progress or a thought that Crush has not yet stored arrives with the next snapshot, not at once.
 - A server restart still fails the turn, as the server lost it.
-- Tests: `internal/bridge/reconnect_test.go` covers the drop with the server up, a turn that ends during the gap, a resumed session's earlier turns, a re-delivered permission request, client ID reuse against `internal/fakecrush`, and the restart and gone-server fallbacks.
+- Tests: `internal/bridge/reconnect_test.go` covers the drop with the server up, a turn that ends during the gap, a resumed session's earlier turns, a catch-up before the prompt is stored, prompts sent during a re-subscribe or a server check, a re-delivered permission request, client ID reuse against `internal/fakecrush`, and the restart and gone-server fallbacks.
