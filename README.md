@@ -58,8 +58,9 @@ crush-acp-bridge --shared
 
 The bridge sends its environment when it opens a project on a local server, as Crush clients do: a Unix
 socket, a named pipe, or a `--crush-url` whose host is `localhost` or a loopback address. A server on another machine
-receives no environment. Set provider variables such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` on the
-bridge. The first client to open a project sets its environment for every later client.
+receives no environment, and the bridge refuses a socket or pipe whose server runs as another user. Set provider
+variables such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` on the bridge. The first client to open a project sets
+its environment for every later client.
 
 ### Self-contained: one server per bridge
 
