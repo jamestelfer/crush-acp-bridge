@@ -21,5 +21,5 @@ Paseo calls `session/load` when `loadSession` is advertised, and `session/resume
 ## Consequences
 
 - Paseo resumes an archived agent and shows its history. `paseo import` shows a stored conversation.
-- Empty sessions, such as those Paseo probes create, stay out of the list but remain in Crush: [#5](https://github.com/jamestelfer/crush-acp-bridge/issues/5).
+- Empty sessions, such as those Paseo probes create, stay out of the list. The bridge deletes the ones it created when it exits ([ADR 9](0009-delete-empty-sessions-on-exit.md)); any it could not delete remain in Crush.
 - A list without `cwd` from a fresh bridge is empty.

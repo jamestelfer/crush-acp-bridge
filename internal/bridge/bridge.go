@@ -23,6 +23,7 @@ import (
 // satisfies it.
 type Backend interface {
 	NewSession(ctx context.Context, title string) (string, error)
+	DeleteSession(ctx context.Context, sessionID string) error
 	SetCurrentSession(ctx context.Context, sessionID string) error
 	Prompt(ctx context.Context, sessionID, text string) error
 	Cancel(ctx context.Context, sessionID string) error
@@ -51,7 +52,8 @@ func WithLogger(l *slog.Logger) Option {
 }
 
 // Serve runs the ACP agent over in and out until the peer disconnects or ctx
-// ends. Each ACP session opens Crush in the directory the editor sends.
+// ends. Each ACP session opens Crush in the directory the editor sends. Before
+// it returns, Serve deletes the sessions it created that are still empty.
 func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts ...Option) error {
 	a := &Agent{
 		open:       open,
@@ -81,8 +83,16 @@ func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts .
 	case <-conn.Done():
 	case <-ctx.Done():
 	}
+	// ctx may already be cancelled by a signal; clean-up still gets a bounded
+	// chance to reach Crush.
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupWait)
+	defer cancel()
+	a.deleteEmpty(cleanup)
 	return ctx.Err()
 }
+
+// cleanupWait bounds how long Serve spends deleting empty sessions.
+const cleanupWait = 5 * time.Second
 
 // gatedReader holds every Read until open closes.
 type gatedReader struct {
@@ -128,6 +138,12 @@ type workspace struct {
 type session struct {
 	cwd  string
 	turn chan turnEnd
+
+	// created is set when this bridge created the session in Crush, and
+	// prompted once the editor sends it a prompt. Serve deletes a session it
+	// created and never prompted if Crush still holds no messages for it.
+	created  bool
+	prompted atomic.Bool
 	// active is set while a Prompt call waits for its turn. Turns started by
 	// other clients (the Crush TUI) also end in this session; their ends must
 	// not complete a later prompt.
@@ -215,8 +231,17 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	}
 	modes, err := a.attach(ctx, backend, id, req.Cwd)
 	if err != nil {
+		// The editor never learns the ID, so nothing can use the session.
+		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupWait)
+		defer cancel()
+		if derr := backend.DeleteSession(dctx, id); derr != nil {
+			a.log.Warn("empty session not deleted", "session_id", id, "cwd", req.Cwd, "error", derr)
+		}
 		return acp.NewSessionResponse{}, err
 	}
+	a.mu.Lock()
+	a.sessions[id].created = true
+	a.mu.Unlock()
 	a.log.Info("session created", "session_id", id, "cwd", req.Cwd)
 	return acp.NewSessionResponse{
 		SessionId:     acp.SessionId(id),
@@ -245,6 +270,7 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	if err != nil {
 		return acp.PromptResponse{}, err
 	}
+	s.prompted.Store(true) // before anything can fail: Crush may have the prompt
 	if err := a.awaitConnected(ctx, s.cwd); err != nil {
 		return acp.PromptResponse{}, err
 	}

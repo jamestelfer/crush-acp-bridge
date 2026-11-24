@@ -89,20 +89,23 @@ type fakeCrush struct {
 	onCancel  trace // replayed when the session is cancelled
 	events    chan []byte
 
-	mu        sync.Mutex
-	prompts   []string
-	cancels   []string
-	grants    []grant
-	grantErr  error
-	models    crush.Models
-	modelsErr error
-	setModels []crush.ModelRef
-	agents    []string
-	agentErr  error
-	currents  []string
-	stored    []crush.Session // returned by Sessions
-	history   trace           // the stored messages' source when set; else script
-	down      atomic.Bool
+	mu         sync.Mutex
+	prompts    []string
+	cancels    []string
+	grants     []grant
+	grantErr   error
+	models     crush.Models
+	modelsErr  error
+	setModels  []crush.ModelRef
+	agents     []string
+	agentErr   error
+	currents   []string
+	currentErr error // returned by SetCurrentSession when set
+	deleted    []string
+	deleteErr  error
+	stored     []crush.Session // returned by Sessions
+	history    trace           // the stored messages' source when set; else script
+	down       atomic.Bool
 }
 
 func (f *fakeCrush) Sessions(context.Context) ([]crush.Session, error) {
@@ -196,8 +199,27 @@ func (f *fakeCrush) NewSession(context.Context, string) (string, error) {
 func (f *fakeCrush) SetCurrentSession(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.currentErr != nil {
+		return f.currentErr
+	}
 	f.currents = append(f.currents, id)
 	return nil
+}
+
+func (f *fakeCrush) DeleteSession(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	f.deleted = append(f.deleted, id)
+	return nil
+}
+
+func (f *fakeCrush) deletedSessions() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.deleted...)
 }
 
 func (f *fakeCrush) Events(context.Context) (<-chan []byte, error) {
@@ -328,6 +350,20 @@ func connect(t *testing.T, backend bridge.Backend, ed *editor, opts ...bridge.Op
 // view of the connection.
 func connectWith(t *testing.T, open bridge.Opener, ed *editor, opts ...bridge.Option) *acp.ClientSideConnection {
 	t.Helper()
+	return serveWith(t, open, ed, opts...).conn
+}
+
+// served is a running bridge whose end the test controls.
+type served struct {
+	conn   *acp.ClientSideConnection
+	cancel context.CancelFunc // ends Serve as a signal does
+	input  *io.PipeWriter     // the bridge's stdin
+	done   chan struct{}      // closed when Serve returns
+}
+
+// serveWith serves the bridge over in-memory pipes until the test ends.
+func serveWith(t *testing.T, open bridge.Opener, ed *editor, opts ...bridge.Option) *served {
+	t.Helper()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	toAgentR, toAgentW := io.Pipe()
@@ -347,7 +383,31 @@ func connectWith(t *testing.T, open bridge.Opener, ed *editor, opts ...bridge.Op
 
 	conn := acp.NewClientSideConnection(ed, toAgentW, toEditorR)
 	conn.SetLogger(slog.New(slog.DiscardHandler))
-	return conn
+	return &served{conn: conn, cancel: cancel, input: toAgentW, done: done}
+}
+
+// disconnect closes the bridge's stdin, as an editor that exits does, and
+// waits for Serve to return.
+func (s *served) disconnect(t *testing.T) {
+	t.Helper()
+	require.NoError(t, s.input.Close())
+	s.wait(t)
+}
+
+// stop cancels Serve's context, as SIGTERM does, and waits for it to return.
+func (s *served) stop(t *testing.T) {
+	t.Helper()
+	s.cancel()
+	s.wait(t)
+}
+
+func (s *served) wait(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.done:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "Serve did not return")
+	}
 }
 
 // start initialises the connection and creates a session.

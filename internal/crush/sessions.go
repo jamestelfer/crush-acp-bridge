@@ -16,6 +16,7 @@ type Session struct {
 	Title        string
 	MessageCount int64
 	UpdatedAt    time.Time
+	Busy         bool // a turn is running
 }
 
 // Sessions lists the workspace's sessions, including sub-agent sessions.
@@ -26,13 +27,14 @@ func (w *Workspace) Sessions(ctx context.Context) ([]Session, error) {
 		Title        string `json:"title"`
 		MessageCount int64  `json:"message_count"`
 		UpdatedAt    int64  `json:"updated_at"` // Unix seconds
+		Busy         bool   `json:"is_busy"`
 	}
 	if err := w.c.do(ctx, http.MethodGet, w.path("/sessions"), nil, &raw); err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
 	out := make([]Session, len(raw))
 	for i, s := range raw {
-		out[i] = Session{ID: s.ID, ParentID: s.ParentID, Title: s.Title, MessageCount: s.MessageCount}
+		out[i] = Session{ID: s.ID, ParentID: s.ParentID, Title: s.Title, MessageCount: s.MessageCount, Busy: s.Busy}
 		if s.UpdatedAt != 0 { // unset, not 1970
 			out[i].UpdatedAt = time.Unix(s.UpdatedAt, 0)
 		}
@@ -48,4 +50,12 @@ func (w *Workspace) Messages(ctx context.Context, sessionID string) ([]jsontext.
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
 	return out, nil
+}
+
+// DeleteSession removes a session and its messages from Crush.
+func (w *Workspace) DeleteSession(ctx context.Context, sessionID string) error {
+	if err := w.c.do(ctx, http.MethodDelete, w.path("/sessions/"+url.PathEscape(sessionID)), nil, nil); err != nil {
+		return fmt.Errorf("delete session: %w", err)
+	}
+	return nil
 }

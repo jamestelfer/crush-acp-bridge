@@ -21,12 +21,14 @@ import (
 	"github.com/jamestelfer/crush-acp-bridge/internal/fakecrush"
 )
 
-// fakeCrush answers health checks and records the directories opened.
+// fakeCrush answers health checks and records the directories opened and
+// the sessions deleted. Its one session, sess-1, never holds messages.
 type fakeCrush struct {
 	*httptest.Server
 
-	mu     sync.Mutex
-	opened []string
+	mu      sync.Mutex
+	opened  []string
+	deleted []string
 }
 
 func newFakeCrush(t *testing.T) *fakeCrush {
@@ -53,6 +55,14 @@ func newFakeCrush(t *testing.T) *fakeCrush {
 		_, _ = w.Write([]byte(`{"id":"sess-1"}`))
 	})
 	mux.HandleFunc("POST /v1/workspaces/ws-1/current-session", func(http.ResponseWriter, *http.Request) {})
+	mux.HandleFunc("GET /v1/workspaces/ws-1/sessions", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":"sess-1","message_count":0}]`))
+	})
+	mux.HandleFunc("DELETE /v1/workspaces/ws-1/sessions/{sid}", func(_ http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.deleted = append(f.deleted, r.PathValue("sid"))
+		f.mu.Unlock()
+	})
 	f.Server = httptest.NewServer(mux)
 	t.Cleanup(f.Close)
 	return f
@@ -62,6 +72,12 @@ func (f *fakeCrush) openedDirs() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.opened...)
+}
+
+func (f *fakeCrush) deletedSessions() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.deleted...)
 }
 
 // runEditor runs the bridge, sends an initialize and a session/new for
@@ -115,6 +131,17 @@ func TestRunOpensCrushInTheDirectoryTheEditorSends(t *testing.T) {
 
 	require.Equal(t, exitOK, code, "stderr: %s", stderr)
 	assert.Equal(t, []string{"/editor/project"}, srv.openedDirs())
+}
+
+// An editor probe opens a session and disconnects without prompting it, as
+// `paseo provider diagnostic` does.
+func TestEditorProbeLeavesNoEmptySessionInCrush(t *testing.T) {
+	srv := newFakeCrush(t)
+
+	sid, code, stderr := openSession(t, "--crush-url", srv.URL)
+
+	require.Equal(t, exitOK, code, "stderr: %s", stderr)
+	assert.Equal(t, []string{sid}, srv.deletedSessions())
 }
 
 func TestRunCwdFlagOverridesTheEditorsDirectory(t *testing.T) {

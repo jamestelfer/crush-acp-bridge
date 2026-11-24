@@ -12,6 +12,7 @@ Each record states one decision, its context and its consequences. Records are n
 | [0006](0006-session-load-and-list.md) | Session load, resume and list semantics | Accepted |
 | [0007](0007-diff-content-sources.md) | Diff content sources for edit tools | Accepted |
 | [0008](0008-turn-failure-on-event-stream-loss.md) | Fail the turn when the event stream drops | Accepted |
+| [0009](0009-delete-empty-sessions-on-exit.md) | Delete empty sessions when the bridge exits | Accepted |
 
 Template:
 

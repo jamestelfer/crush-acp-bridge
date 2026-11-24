@@ -28,7 +28,7 @@ No method-not-found is reachable from Paseo.
 
 ## Behaviour
 
-- **Probe sessions.** Paseo creates a session for each provider probe and catalogue refresh. Each leaves an empty `ACP` session in Crush. `session/list` hides them; [#5](https://github.com/jamestelfer/crush-acp-bridge/issues/5) tracks removing them.
+- **Probe sessions.** Paseo creates a session for each provider probe and catalogue refresh, and never prompts it. The bridge deletes these empty sessions from Crush when the probe's bridge exits ([ADR 9](adr/0009-delete-empty-sessions-on-exit.md)).
 - **Catalogue cache.** Paseo caches each provider's models and modes. `paseo provider diagnostic crush` re-probes the provider and refreshes the cache; its output reports the mode count (`modes=2`). `paseo provider models crush` lists the models with the current one as default.
 - **Modes.** Paseo asks for a mode (`coder` or `plan`) when it creates a Crush agent, including from another provider's agent.
 - **Resume and import.** Resuming an archived agent calls `session/load`. `paseo import` of a stored Crush session shows its conversation.

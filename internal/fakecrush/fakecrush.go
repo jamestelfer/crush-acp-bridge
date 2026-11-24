@@ -55,6 +55,11 @@ func Handler(onOpen func(path string)) http.Handler {
 		_, _ = w.Write([]byte(`{"id":"sess-1"}`))
 	})
 	mux.HandleFunc("POST /v1/workspaces/ws-1/current-session", func(http.ResponseWriter, *http.Request) {})
+	// sess-1 never holds messages, so a bridge deletes it when it exits.
+	mux.HandleFunc("GET /v1/workspaces/ws-1/sessions", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":"sess-1","message_count":0}]`))
+	})
+	mux.HandleFunc("DELETE /v1/workspaces/ws-1/sessions/{sid}", func(http.ResponseWriter, *http.Request) {})
 	return mux
 }
 
