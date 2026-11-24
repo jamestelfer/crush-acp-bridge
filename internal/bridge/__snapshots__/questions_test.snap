@@ -239,3 +239,34 @@
  }
 ]
 ---
+
+[TestMultiChoiceQuestionUsesAFormWhenTheEditorOffersOne - 1]
+{
+ "message": "(1/3) Should the greeting be in English or French?",
+ "mode": "form",
+ "requestedSchema": {
+  "properties": {
+   "answer": {
+    "description": "Select the language you want to use for the greeting.",
+    "items": {
+     "anyOf": [
+      {
+       "const": "en",
+       "title": "English"
+      },
+      {
+       "const": "fr",
+       "title": "French"
+      }
+     ]
+    },
+    "title": "Should the greeting be in English or French?",
+    "type": "array"
+   }
+  },
+  "type": "object"
+ },
+ "sessionId": "a8cd137c-4786-4409-b86d-c64711797633",
+ "toolCallId": "call_5373993239042528834"
+}
+---

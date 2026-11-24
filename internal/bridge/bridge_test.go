@@ -97,6 +97,8 @@ type fakeCrush struct {
 	grantErr    error
 	answered    []answered // question batches answered, in order
 	cancelledQ  []string   // question batches cancelled, in order
+	answerErr   error      // returned once by AnswerQuestions when set
+	cancelErr   error      // returned by CancelQuestions when set
 	models      crush.Models
 	modelsErr   error
 	setModels   []crush.ModelRef
@@ -346,14 +348,16 @@ func (f *fakeCrush) AnswerQuestions(_ context.Context, batchID string, answers [
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.answered = append(f.answered, answered{batchID, answers})
-	return true, nil
+	err := f.answerErr
+	f.answerErr = nil
+	return err == nil, err
 }
 
 func (f *fakeCrush) CancelQuestions(_ context.Context, batchID string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.cancelledQ = append(f.cancelledQ, batchID)
-	return true, nil
+	return f.cancelErr == nil, f.cancelErr
 }
 
 // editor is an in-memory ACP client that records what the agent sends.

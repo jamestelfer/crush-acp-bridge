@@ -1,7 +1,9 @@
 package bridge_test
 
 import (
+	"bytes"
 	"encoding/json/v2"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -62,6 +64,17 @@ func (q *asker) elicit(r acp.CreateElicitationRequest) acp.CreateElicitationResp
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.elicited = append(q.elicited, r)
+	if f := r.Form.RequestedSchema.Properties["answer"]; f.Array != nil {
+		// Pick every choice the form offers.
+		ids := make([]string, 0, len(f.Array.Items.Titled.AnyOf))
+		for _, o := range f.Array.Items.Titled.AnyOf {
+			ids = append(ids, o.Const)
+		}
+		return acp.CreateElicitationResponse{Accept: &acp.CreateElicitationAccept{
+			Action:  "accept",
+			Content: map[string]acp.ElicitationContentValue{"answer": acp.NewElicitationContentValueStringArray(ids...)},
+		}}
+	}
 	return acp.CreateElicitationResponse{Accept: &acp.CreateElicitationAccept{
 		Action:  "accept",
 		Content: map[string]acp.ElicitationContentValue{"answer": acp.NewElicitationContentValueString("Ada")},
@@ -218,19 +231,76 @@ func TestDismissedQuestionCancelsTheBatch(t *testing.T) {
 	assert.Len(t, q.requests(), 2, "no question is asked after one is dismissed")
 }
 
-func TestQuestionBatchRedeliveredWhileAskedIsAskedOnce(t *testing.T) {
-	tr := loadTrace(t, "question-batch.sse")
-	var batch []byte
+// batchEvent is the question_batch_request event of tr.
+func batchEvent(t *testing.T, tr trace) []byte {
+	t.Helper()
 	for _, data := range tr {
 		var ev struct {
 			Type string `json:"type"`
 		}
 		require.NoError(t, json.Unmarshal(data, &ev))
 		if ev.Type == "question_batch_request" {
-			batch = data
+			return data
 		}
 	}
-	require.NotNil(t, batch)
+	require.FailNow(t, "the trace has no question batch")
+	return nil
+}
+
+func TestMultiChoiceQuestionUsesAFormWhenTheEditorOffersOne(t *testing.T) {
+	tr := loadTrace(t, "question-batch.sse")
+	// The recorded batch has no multi_choice question: make the first one so.
+	for i, data := range tr {
+		tr[i] = bytes.Replace(data, []byte(`"type":"single_choice"`), []byte(`"type":"multi_choice"`), 1)
+	}
+	backend := newFakeCrush(tr.sessionID(t), tr)
+	q := &asker{}
+	ed := &editor{onPermisson: q.permission, onElicit: q.elicit}
+	conn := connect(t, backend, ed)
+	sid := initWith(t, conn, formElicitation)
+
+	prompt(t, conn, sid, questionPrompt)
+	awaitAnswered(t, backend)
+
+	answers, _ := backend.questionOutcome()
+	require.Len(t, answers, 1)
+	assert.Equal(t, crush.QuestionAnswer{QuestionID: languageQ, SelectedIDs: []string{"en", "fr"}}, answers[0].Answers[0])
+	assert.Len(t, q.requests(), 1, "only the yes/no question goes through a permission request")
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	require.Len(t, q.elicited, 2)
+	out, err := json.Marshal(q.elicited[0])
+	require.NoError(t, err)
+	snaps.MatchJSON(t, out)
+}
+
+func TestQuestionBatchIsAskedAgainWhenTheAnswerDoesNotReachCrush(t *testing.T) {
+	tr := loadTrace(t, "question-batch.sse")
+	batch := batchEvent(t, tr)
+	backend := newFakeCrush(tr.sessionID(t), tr)
+	backend.answerErr = errors.New("answer questions: connection refused")
+	q := &asker{}
+	conn := connect(t, backend, &editor{onPermisson: q.permission})
+	sid := start(t, conn)
+
+	prompt(t, conn, sid, questionPrompt)
+	awaitAnswered(t, backend)
+	require.Len(t, q.requests(), 3)
+
+	// Crush re-delivers the batch it still holds as pending. Until the bridge
+	// has logged the failed answer, a re-delivery is still being asked.
+	require.Eventually(t, func() bool {
+		backend.push(trace{batch})
+		answers, _ := backend.questionOutcome()
+		return len(answers) == 2
+	}, 2*time.Second, 10*time.Millisecond, "the re-delivered batch was not answered")
+	assert.Len(t, q.requests(), 6, "the re-delivered batch is asked again")
+}
+
+func TestQuestionBatchRedeliveredWhileAskedIsAskedOnce(t *testing.T) {
+	tr := loadTrace(t, "question-batch.sse")
+	batch := batchEvent(t, tr)
 	// Crush re-delivers a pending batch after a resubscribe.
 	backend := newFakeCrush(tr.sessionID(t), append(trace{batch, batch}, tr...))
 	q := &asker{}

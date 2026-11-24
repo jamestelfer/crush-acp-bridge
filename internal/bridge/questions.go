@@ -39,30 +39,29 @@ func (a *Agent) askQuestions(s *session, u *translate.Update) {
 
 // answerQuestions asks the editor each question of the batch and sends the
 // answers to Crush. A question the editor dismisses cancels the batch, which
-// ends Crush's turn.
+// ends Crush's turn. A batch that reached Crush stays recorded as asked, so a
+// late re-delivery is not asked again; one that did not may be re-delivered
+// and asked again.
 func (a *Agent) answerQuestions(backend Backend, u translate.Update) {
+	outcome := "answer"
 	answers := make([]crush.QuestionAnswer, 0, len(u.Questions))
 	for i, q := range u.Questions {
-		ans, ok := a.askQuestion(u, i)
+		ans, ok := a.askQuestion(u, q, i)
 		if !ok {
-			a.settleQuestions(u, "cancel", func() (bool, error) {
-				return backend.CancelQuestions(a.serveCtx, u.BatchID)
-			})
-			return
+			outcome = "cancel"
+			break
 		}
 		ans.QuestionID = q.ID
 		answers = append(answers, ans)
 	}
-	a.settleQuestions(u, "answer", func() (bool, error) {
-		return backend.AnswerQuestions(a.serveCtx, u.BatchID, answers)
-	})
-}
 
-// settleQuestions sends the batch's outcome to Crush. A batch that reached
-// Crush stays recorded as asked, so a late re-delivery is not asked again; one
-// that did not may be re-delivered and asked again.
-func (a *Agent) settleQuestions(u translate.Update, outcome string, send func() (bool, error)) {
-	resolved, err := send()
+	var resolved bool
+	var err error
+	if outcome == "cancel" {
+		resolved, err = backend.CancelQuestions(a.serveCtx, u.BatchID)
+	} else {
+		resolved, err = backend.AnswerQuestions(a.serveCtx, u.BatchID, answers)
+	}
 	if err != nil {
 		a.log.Warn("question outcome not delivered",
 			"error", err, "outcome", outcome, "batch_id", u.BatchID, "session_id", u.SessionID)
@@ -74,20 +73,26 @@ func (a *Agent) settleQuestions(u translate.Update, outcome string, send func() 
 		"batch_id", u.BatchID, "session_id", u.SessionID)
 }
 
-// askQuestion asks the editor question i of the batch. It returns false when
-// the editor dismissed it or could not be asked.
-func (a *Agent) askQuestion(u translate.Update, i int) (crush.QuestionAnswer, bool) {
-	q := u.Questions[i]
+// askQuestion asks the editor q, question i of the batch. It returns false
+// when the editor dismissed it or could not be asked.
+func (a *Agent) askQuestion(u translate.Update, q translate.Question, i int) (crush.QuestionAnswer, bool) {
 	title := q.Text
 	if n := len(u.Questions); n > 1 {
 		title = fmt.Sprintf("(%d/%d) %s", i+1, n, q.Text)
 	}
+	forms := a.formElicitation.Load()
+	switch {
+	case q.Type == translate.FreeText && forms:
+		return a.elicitText(u, q, title)
+	case q.Type == translate.MultiChoice && forms:
+		return a.elicitChoices(u, q, title)
+	}
 	text := questionText(q)
-	if q.Type == translate.FreeText {
-		if a.formElicitation.Load() {
-			return a.elicitText(u, q, title)
-		}
+	switch q.Type {
+	case translate.FreeText:
 		text += "\n\nThis editor cannot send a typed answer here: skip the question, then reply in the chat."
+	case translate.MultiChoice:
+		text += "\n\nPick one; this editor takes one choice per question."
 	}
 
 	resp, err := a.conn.RequestPermission(a.serveCtx, acp.RequestPermissionRequest{
@@ -113,7 +118,9 @@ func (a *Agent) askQuestion(u translate.Update, i int) (crush.QuestionAnswer, bo
 
 // questionOptions are the editor's choices for q. A permission request takes
 // no text, so a free-text question can only be skipped, and a multi-choice
-// question takes one choice.
+// question takes one choice. ACP has no option kind for an answer, so Yes and
+// every choice are allow_once: an editor that approves permission requests
+// unasked answers Yes, or the first choice.
 func questionOptions(q translate.Question) []acp.PermissionOption {
 	switch q.Type {
 	case translate.YesNo:
@@ -157,37 +164,90 @@ func selectedAnswer(q translate.Question, id acp.PermissionOptionId) crush.Quest
 	return crush.QuestionAnswer{}
 }
 
-// elicitText asks a free-text question through a form. Declining skips the
-// question; cancelling, or a failed request, dismisses it.
+// elicitText asks a free-text question through a form.
 func (a *Agent) elicitText(u translate.Update, q translate.Question, title string) (crush.QuestionAnswer, bool) {
-	toolCall := acp.ToolCallId(u.ToolCallID)
 	field := acp.ElicitationPropertySchemaString{Type: "string", Title: &q.Text}
 	if q.Description != "" {
 		field.Description = &q.Description
 	}
+	v, ok := a.elicit(u, title, acp.ElicitationPropertySchema{String: &field}, true)
+	if !ok {
+		return crush.QuestionAnswer{}, false
+	}
+	if v != nil && v.String != nil {
+		return crush.QuestionAnswer{FillInText: string(*v.String)}, true
+	}
+	return crush.QuestionAnswer{}, true
+}
+
+// elicitChoices asks a multi-choice question through a form, so the editor can
+// pick several choices. Selecting none skips the question.
+func (a *Agent) elicitChoices(u translate.Update, q translate.Question, title string) (crush.QuestionAnswer, bool) {
+	opts := make([]acp.EnumOption, 0, len(q.Choices))
+	for _, c := range q.Choices {
+		o := acp.EnumOption{Const: c.ID, Title: c.Label}
+		if c.Description != "" {
+			o.Description = &c.Description
+		}
+		opts = append(opts, o)
+	}
+	field := acp.ElicitationPropertySchemaArray{
+		Type:  "array",
+		Title: &q.Text,
+		Items: acp.MultiSelectItems{Titled: &acp.TitledMultiSelectItems{AnyOf: opts}},
+	}
+	if q.Description != "" {
+		field.Description = &q.Description
+	}
+	v, ok := a.elicit(u, title, acp.ElicitationPropertySchema{Array: &field}, false)
+	if !ok {
+		return crush.QuestionAnswer{}, false
+	}
+	var ans crush.QuestionAnswer
+	if v != nil && v.StringArray != nil {
+		for _, id := range *v.StringArray {
+			for _, c := range q.Choices {
+				if c.ID == id {
+					ans.SelectedIDs = append(ans.SelectedIDs, id)
+					break
+				}
+			}
+		}
+	}
+	return ans, true
+}
+
+// elicit asks the editor for one form field on the question tool call. It
+// returns the field's value, nil when the editor declined or left it empty.
+// Cancelling, or a failed request, dismisses the question and returns false.
+func (a *Agent) elicit(u translate.Update, title string, field acp.ElicitationPropertySchema, required bool) (*acp.ElicitationContentValue, bool) {
+	toolCall := acp.ToolCallId(u.ToolCallID)
+	schema := acp.ElicitationSchema{
+		Type:       "object",
+		Properties: map[string]acp.ElicitationPropertySchema{answerField: field},
+	}
+	if required {
+		schema.Required = []string{answerField}
+	}
 	resp, err := a.conn.CreateElicitation(a.serveCtx, acp.CreateElicitationRequest{Form: &acp.CreateElicitationForm{
-		Mode:    "form",
-		Message: title,
-		RequestedSchema: acp.ElicitationSchema{
-			Type:       "object",
-			Properties: map[string]acp.ElicitationPropertySchema{answerField: {String: &field}},
-			Required:   []string{answerField},
-		},
-		Session: &acp.ElicitationSessionScope{SessionId: acp.SessionId(u.SessionID), ToolCallId: &toolCall},
+		Mode:            "form",
+		Message:         title,
+		RequestedSchema: schema,
+		Session:         &acp.ElicitationSessionScope{SessionId: acp.SessionId(u.SessionID), ToolCallId: &toolCall},
 	}})
 	switch {
 	case err != nil:
 		a.log.Warn("question not asked", "error", err, "batch_id", u.BatchID, "session_id", u.SessionID)
-		return crush.QuestionAnswer{}, false
+		return nil, false
 	case resp.Accept != nil:
-		if v, ok := resp.Accept.Content[answerField]; ok && v.String != nil {
-			return crush.QuestionAnswer{FillInText: string(*v.String)}, true
+		if v, ok := resp.Accept.Content[answerField]; ok {
+			return &v, true
 		}
-		return crush.QuestionAnswer{}, true
+		return nil, true
 	case resp.Decline != nil:
-		return crush.QuestionAnswer{}, true
+		return nil, true
 	default:
-		return crush.QuestionAnswer{}, false
+		return nil, false
 	}
 }
 
@@ -220,9 +280,6 @@ func questionText(q translate.Question) string {
 		if c.Description != "" {
 			b.WriteString(": " + c.Description)
 		}
-	}
-	if q.Type == translate.MultiChoice {
-		b.WriteString("\n\nPick one; this editor takes one choice per question.")
 	}
 	return strings.TrimSpace(b.String())
 }

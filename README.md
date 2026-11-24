@@ -210,9 +210,10 @@ Supported:
   session, records only a unified diff, which is shown as text.
 - Permission requests: allow once, allow for the session, and reject.
 - Questions from Crush's `question` tool, asked one at a time as permission requests: Yes and No, or one
-  option per choice. A multi-choice question takes one choice. A free-text answer needs an editor that
-  offers form elicitation; elsewhere the question can only be skipped. Dismissing a question cancels the
-  batch and ends Crush's turn.
+  option per choice. A free-text or multi-choice question uses a form when the editor offers form
+  elicitation. Elsewhere a free-text question can only be skipped, and a multi-choice question takes one
+  choice. Dismissing a question cancels the batch and ends Crush's turn. An editor that approves
+  permission requests without asking answers each question with Yes or its first choice.
 - `session/cancel`. The prompt returns the `cancelled` stop reason.
 - Image and embedded-resource prompts, sent to Crush as attachments. Text resources are inlined into the
   prompt; an image is refused when Crush's current model cannot see it. Resource links appear in the prompt

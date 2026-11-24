@@ -11,9 +11,9 @@ import (
 // that sets nothing tells the model the user skipped the question.
 type QuestionAnswer struct {
 	QuestionID  string   `json:"request_id"`
-	SelectedIDs []string `json:"selected_ids,omitempty"`
-	FillInText  string   `json:"fill_in_text,omitempty"`
-	Yes         *bool    `json:"yes,omitempty"`
+	SelectedIDs []string `json:"selected_ids,omitzero"`
+	FillInText  string   `json:"fill_in_text,omitzero"`
+	Yes         *bool    `json:"yes,omitzero"`
 }
 
 // resolution is Crush's reply to a question answer or cancel. Resolved is
