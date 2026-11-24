@@ -1,0 +1,30 @@
+
+[TestNewSessionOffersCrushsModels - 1]
+[
+ {
+  "category": "model",
+  "currentValue": "vertexai/gemini-4-hydrogen",
+  "description": "The model Crush uses in this directory. Changing it affects every Crush client of the directory.",
+  "id": "model",
+  "name": "Model",
+  "options": [
+   {
+    "description": "Anthropic",
+    "name": "Claude Sonnet 4.6",
+    "value": "anthropic/claude-sonnet-4-6"
+   },
+   {
+    "description": "OpenRouter",
+    "name": "qwen/qwen3-coder",
+    "value": "openrouter/qwen/qwen3-coder"
+   },
+   {
+    "description": "Google Vertex AI",
+    "name": "Gemini 4 Hydrogen",
+    "value": "vertexai/gemini-4-hydrogen"
+   }
+  ],
+  "type": "select"
+ }
+]
+---

@@ -21,9 +21,12 @@ just snapshots # regenerate go-snaps golden files for review
 just fmt       # gofmt -w .
 just lint      # golangci-lint run ./...
 just xbuild    # goreleaser snapshot build across the full release matrix
+just live      # drive the built binary against a running crush server (CRUSH_ACP_URL, LIVE_CWD)
+just acpx "…"  # send one prompt through the built binary with acpx
+just record-trace name action "prompt"…  # record a Crush SSE trace into testdata/ (docs/testing.md)
 ```
 
-Tool versions (Go, golangci-lint, goreleaser, just) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
+Tool versions (Go, golangci-lint, goreleaser, just, Crush, gcloud, Node) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
 
 ## Unit tests
 
@@ -47,6 +50,12 @@ Tool versions (Go, golangci-lint, goreleaser, just) are pinned in `mise.toml`; r
   `TestMain` so obsolete snapshots fail the normal test run and can be removed
   during regeneration.
 
+## Test doubles for Crush
+
+`internal/fakecrush` serves the part of the Crush API the bridge uses. Packages that start a child
+process (`internal/crushserver`, `cmd/cli`) call `fakecrush.MaybeRunAsServer()` from `TestMain` and
+spawn `os.Args[0]` as the `crush` executable, so tests need no external binary and run on every platform.
+
 ## Cross-platform rules
 
 Linux, macOS and Windows on `amd64` and `arm64` are equal targets, all tested in CI: use `path/filepath` for paths, keep filenames legal on Windows, build-tag anything POSIX-only, and keep `CGO_ENABLED=0`.
@@ -64,6 +73,10 @@ Use Conventional Commits for all commit messages and PR titles. `pr-title.yml` e
 | `feat: <description>` | new user-visible feature (minor bump) |
 | `fix: <description>` | bug fix (patch bump) |
 | `chore:`, `docs:`, `refactor:`, `test:`, `ci:` | maintenance, no release |
+
+## References in docs
+
+Cite PRs, issues, ADRs, tests or file paths, never commit hashes. Branches are squash-merged and may be rewritten, so hashes go stale.
 
 ## Key conventions
 

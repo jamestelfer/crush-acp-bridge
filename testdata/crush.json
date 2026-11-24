@@ -1,0 +1,1 @@
+{"$schema":"https://charm.land/crush.json","models":{"large":{"model":"gemini-4-hydrogen","provider":"vertexai"}},"providers":{"vertexai":{"models":[{"capabilities":{"vision":true},"context_window":1000000,"default_max_tokens":64000,"id":"gemini-4-hydrogen","name":"Gemini 4 Hydrogen","reasoning":{"thinking":"toggleable"}}]}}}

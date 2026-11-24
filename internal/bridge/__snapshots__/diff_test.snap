@@ -1,0 +1,441 @@
+
+[TestEditorViewOfEditTurn - 1]
+[
+ {
+  "content": {
+   "text": "Use the edit tool to change the line 'beta' to 'BETA' in greek.txt. Then use the multiedit tool, in one call, to change 'gamma' to 'GAMMA' and 'delta' to 'DELTA' in the same file. Then say done.",
+   "type": "text"
+  },
+  "sessionUpdate": "user_message_chunk"
+ },
+ {
+  "kind": "read",
+  "sessionUpdate": "tool_call",
+  "status": "in_progress",
+  "title": "view",
+  "toolCallId": "call_10862877482962058607"
+ },
+ {
+  "locations": [
+   {
+    "path": "/tmp/crushlive/diffproj/greek.txt"
+   }
+  ],
+  "rawInput": {
+   "file_path": "/tmp/crushlive/diffproj/greek.txt"
+  },
+  "sessionUpdate": "tool_call_update",
+  "title": "View /tmp/crushlive/diffproj/greek.txt",
+  "toolCallId": "call_10862877482962058607"
+ },
+ {
+  "content": [
+   {
+    "content": {
+     "text": "<file>\n     1|alpha\n     2|beta\n     3|gamma\n     4|delta\n     5|\n</file>\n",
+     "type": "text"
+    },
+    "type": "content"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "status": "completed",
+  "toolCallId": "call_10862877482962058607"
+ },
+ {
+  "kind": "edit",
+  "sessionUpdate": "tool_call",
+  "status": "in_progress",
+  "title": "edit",
+  "toolCallId": "call_16713861530277631741"
+ },
+ {
+  "content": [
+   {
+    "newText": "alpha\nBETA\ngamma",
+    "oldText": "alpha\nbeta\ngamma",
+    "path": "/tmp/crushlive/diffproj/greek.txt",
+    "type": "diff"
+   }
+  ],
+  "locations": [
+   {
+    "path": "/tmp/crushlive/diffproj/greek.txt"
+   }
+  ],
+  "rawInput": {
+   "file_path": "/tmp/crushlive/diffproj/greek.txt",
+   "new_string": "alpha\nBETA\ngamma",
+   "old_string": "alpha\nbeta\ngamma"
+  },
+  "sessionUpdate": "tool_call_update",
+  "title": "Edit /tmp/crushlive/diffproj/greek.txt",
+  "toolCallId": "call_16713861530277631741"
+ },
+ {
+  "content": [
+   {
+    "newText": "alpha\nBETA\ngamma\ndelta\n",
+    "oldText": "alpha\nbeta\ngamma\ndelta\n",
+    "path": "/tmp/crushlive/diffproj/greek.txt",
+    "type": "diff"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "call_16713861530277631741"
+ },
+ {
+  "content": [
+   {
+    "newText": "alpha\nBETA\ngamma\ndelta\n",
+    "oldText": "alpha\nbeta\ngamma\ndelta\n",
+    "path": "/tmp/crushlive/diffproj/greek.txt",
+    "type": "diff"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "status": "completed",
+  "toolCallId": "call_16713861530277631741"
+ },
+ {
+  "content": {
+   "text": "**Applying Capitalization Changes**\n\nI've executed a multiedit operation to convert 'gamma' to 'GAMMA' and 'delta' to 'DELTA' within the specified file. I'm now verifying that the surrounding context accurately reflects these capitalization updates. The current file state shows 'gamma' in the relevant section.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "kind": "edit",
+  "sessionUpdate": "tool_call",
+  "status": "in_progress",
+  "title": "multiedit",
+  "toolCallId": "call_5185534490520432532"
+ },
+ {
+  "content": [
+   {
+    "newText": "BETA\nGAMMA\ndelta",
+    "oldText": "BETA\ngamma\ndelta",
+    "path": "/tmp/crushlive/diffproj/greek.txt",
+    "type": "diff"
+   },
+   {
+    "newText": "BETA\nGAMMA\nDELTA",
+    "oldText": "BETA\nGAMMA\ndelta",
+    "path": "/tmp/crushlive/diffproj/greek.txt",
+    "type": "diff"
+   }
+  ],
+  "locations": [
+   {
+    "path": "/tmp/crushlive/diffproj/greek.txt"
+   }
+  ],
+  "rawInput": {
+   "edits": [
+    {
+     "new_string": "BETA\nGAMMA\ndelta",
+     "old_string": "BETA\ngamma\ndelta"
+    },
+    {
+     "new_string": "BETA\nGAMMA\nDELTA",
+     "old_string": "BETA\nGAMMA\ndelta"
+    }
+   ],
+   "file_path": "/tmp/crushlive/diffproj/greek.txt"
+  },
+  "sessionUpdate": "tool_call_update",
+  "title": "Multiedit /tmp/crushlive/diffproj/greek.txt",
+  "toolCallId": "call_5185534490520432532"
+ },
+ {
+  "content": [
+   {
+    "newText": "alpha\nBETA\nGAMMA\nDELTA\n",
+    "oldText": "alpha\nBETA\ngamma\ndelta\n",
+    "path": "/tmp/crushlive/diffproj/greek.txt",
+    "type": "diff"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "call_5185534490520432532"
+ },
+ {
+  "content": [
+   {
+    "newText": "alpha\nBETA\nGAMMA\nDELTA\n",
+    "oldText": "alpha\nBETA\ngamma\ndelta\n",
+    "path": "/tmp/crushlive/diffproj/greek.txt",
+    "type": "diff"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "status": "completed",
+  "toolCallId": "call_5185534490520432532"
+ },
+ {
+  "content": {
+   "text": "Done.",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ }
+]
+---
+
+[TestEditorViewOfEditTurn - 2]
+[
+ {
+  "options": [
+   {
+    "kind": "allow_once",
+    "name": "Allow",
+    "optionId": "allow_once"
+   },
+   {
+    "kind": "allow_always",
+    "name": "Allow for this session",
+    "optionId": "allow_always"
+   },
+   {
+    "kind": "reject_once",
+    "name": "Reject",
+    "optionId": "reject_once"
+   }
+  ],
+  "sessionId": "9401071c-a891-49ec-88b1-eb081056b733",
+  "toolCall": {
+   "content": [
+    {
+     "newText": "alpha\nBETA\ngamma\ndelta\n",
+     "oldText": "alpha\nbeta\ngamma\ndelta\n",
+     "path": "/tmp/crushlive/diffproj/greek.txt",
+     "type": "diff"
+    }
+   ],
+   "kind": "edit",
+   "rawInput": {
+    "file_path": "/tmp/crushlive/diffproj/greek.txt",
+    "new_content": "alpha\nBETA\ngamma\ndelta\n",
+    "old_content": "alpha\nbeta\ngamma\ndelta\n"
+   },
+   "status": "pending",
+   "title": "Replace content in file /tmp/crushlive/diffproj/greek.txt",
+   "toolCallId": "call_16713861530277631741"
+  }
+ },
+ {
+  "options": [
+   {
+    "kind": "allow_once",
+    "name": "Allow",
+    "optionId": "allow_once"
+   },
+   {
+    "kind": "allow_always",
+    "name": "Allow for this session",
+    "optionId": "allow_always"
+   },
+   {
+    "kind": "reject_once",
+    "name": "Reject",
+    "optionId": "reject_once"
+   }
+  ],
+  "sessionId": "9401071c-a891-49ec-88b1-eb081056b733",
+  "toolCall": {
+   "content": [
+    {
+     "newText": "alpha\nBETA\nGAMMA\nDELTA\n",
+     "oldText": "alpha\nBETA\ngamma\ndelta\n",
+     "path": "/tmp/crushlive/diffproj/greek.txt",
+     "type": "diff"
+    }
+   ],
+   "kind": "edit",
+   "rawInput": {
+    "file_path": "/tmp/crushlive/diffproj/greek.txt",
+    "new_content": "alpha\nBETA\nGAMMA\nDELTA\n",
+    "old_content": "alpha\nBETA\ngamma\ndelta\n"
+   },
+   "status": "pending",
+   "title": "Apply 2 edits to file /tmp/crushlive/diffproj/greek.txt",
+   "toolCallId": "call_5185534490520432532"
+  }
+ }
+]
+---
+
+[TestEditorViewOfWriteTurn - 1]
+[
+ {
+  "content": {
+   "text": "Use the write tool to create a new file notes.txt containing the two lines 'one' and 'two'. Then read greek.txt and use the write tool to overwrite it with the single line 'omega'. Then say done.",
+   "type": "text"
+  },
+  "sessionUpdate": "user_message_chunk"
+ },
+ {
+  "kind": "edit",
+  "sessionUpdate": "tool_call",
+  "status": "in_progress",
+  "title": "write",
+  "toolCallId": "call_8171991326521080277"
+ },
+ {
+  "kind": "read",
+  "sessionUpdate": "tool_call",
+  "status": "in_progress",
+  "title": "view",
+  "toolCallId": "call_8171991326521079658"
+ },
+ {
+  "locations": [
+   {
+    "path": "/tmp/crushlive/diffproj/notes.txt"
+   }
+  ],
+  "rawInput": {
+   "content": "one\ntwo\n",
+   "file_path": "/tmp/crushlive/diffproj/notes.txt"
+  },
+  "sessionUpdate": "tool_call_update",
+  "title": "Write /tmp/crushlive/diffproj/notes.txt",
+  "toolCallId": "call_8171991326521080277"
+ },
+ {
+  "locations": [
+   {
+    "path": "/tmp/crushlive/diffproj/greek.txt"
+   }
+  ],
+  "rawInput": {
+   "file_path": "/tmp/crushlive/diffproj/greek.txt"
+  },
+  "sessionUpdate": "tool_call_update",
+  "title": "View /tmp/crushlive/diffproj/greek.txt",
+  "toolCallId": "call_8171991326521079658"
+ },
+ {
+  "content": [
+   {
+    "newText": "one\ntwo\n",
+    "path": "/tmp/crushlive/diffproj/notes.txt",
+    "type": "diff"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "call_8171991326521080277"
+ },
+ {
+  "content": [
+   {
+    "newText": "one\ntwo\n",
+    "path": "/tmp/crushlive/diffproj/notes.txt",
+    "type": "diff"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "status": "completed",
+  "toolCallId": "call_8171991326521080277"
+ },
+ {
+  "content": [
+   {
+    "content": {
+     "text": "<file>\n     1|alpha\n     2|BETA\n     3|GAMMA\n     4|DELTA\n     5|\n</file>\n",
+     "type": "text"
+    },
+    "type": "content"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "status": "completed",
+  "toolCallId": "call_8171991326521079658"
+ },
+ {
+  "kind": "edit",
+  "sessionUpdate": "tool_call",
+  "status": "in_progress",
+  "title": "write",
+  "toolCallId": "call_9574960797699994523"
+ },
+ {
+  "locations": [
+   {
+    "path": "/tmp/crushlive/diffproj/greek.txt"
+   }
+  ],
+  "rawInput": {
+   "content": "omega\n",
+   "file_path": "/tmp/crushlive/diffproj/greek.txt"
+  },
+  "sessionUpdate": "tool_call_update",
+  "title": "Write /tmp/crushlive/diffproj/greek.txt",
+  "toolCallId": "call_9574960797699994523"
+ },
+ {
+  "content": [
+   {
+    "content": {
+     "text": "--- a/greek.txt\n+++ b/greek.txt\n@@ -1,4 +1 @@\n-alpha\n-BETA\n-GAMMA\n-DELTA\n+omega\n",
+     "type": "text"
+    },
+    "type": "content"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "status": "completed",
+  "toolCallId": "call_9574960797699994523"
+ },
+ {
+  "content": {
+   "text": "done",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ }
+]
+---
+
+[TestEditorViewOfWriteTurn - 2]
+[
+ {
+  "options": [
+   {
+    "kind": "allow_once",
+    "name": "Allow",
+    "optionId": "allow_once"
+   },
+   {
+    "kind": "allow_always",
+    "name": "Allow for this session",
+    "optionId": "allow_always"
+   },
+   {
+    "kind": "reject_once",
+    "name": "Reject",
+    "optionId": "reject_once"
+   }
+  ],
+  "sessionId": "585b6c15-5efa-4d8e-8344-cfe7c6a3b26d",
+  "toolCall": {
+   "content": [
+    {
+     "newText": "one\ntwo\n",
+     "path": "/tmp/crushlive/diffproj/notes.txt",
+     "type": "diff"
+    }
+   ],
+   "kind": "edit",
+   "rawInput": {
+    "file_path": "/tmp/crushlive/diffproj/notes.txt",
+    "new_content": "one\ntwo\n"
+   },
+   "status": "pending",
+   "title": "Create file /tmp/crushlive/diffproj/notes.txt",
+   "toolCallId": "call_8171991326521080277"
+  }
+ }
+]
+---

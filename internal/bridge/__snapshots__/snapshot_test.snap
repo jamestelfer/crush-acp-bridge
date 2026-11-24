@@ -1,0 +1,271 @@
+
+[TestEditorViewOfStreamedTurn - 1]
+[
+ {
+  "content": {
+   "text": "**Refining explanation details**\n\nI'm currently focusing on ensuring the explanation of TCP congestion control is precisely around the 300-word mark. My efforts are concentrated on the clarity and accuracy of the technical concepts, specifically how algorithms like slow start and congestion avoidance dynamically adjust window sizes to maintain network stability and efficiency without relying on external tools for content generation.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Finalizing TCP explanation**\n\nI'm finalizing the explanation of TCP congestion control, aiming for the 300-word target. My focus remains on the precise technical details, particularly the dynamics of slow start and congestion avoidance, ensuring clarity for an expert audience. I am meticulously crafting the prose to hit the word count exactly, without relying on external generation.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Improving congestion control explanation**\n\nI'm working on detailing the four core phases of TCP congestion control: slow start, congestion avoidance, fast retransmit, and fast recovery. My aim is to explain how TCP probes for bandwidth and reacts to congestion through these distinct mechanisms, ensuring technical accuracy for an expert audience.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Adding refinement details**\n\nI'm meticulously incorporating the nuances of fast retransmit and full timeouts into my explanation. My focus is on how TCP adapts by halving `ssthresh` and setting `cwnd` appropriately to maintain flow, or how a full timeout triggers a more drastic reset, ensuring a comprehensive yet concise update for an expert.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Defining Algorithm Phases**\n\nI'm focusing on delineating the four core phases of TCP congestion control. Specifically, I'm detailing how slow start initially probes for bandwidth, setting the stage for subsequent adjustments. My aim is to clearly articulate the sender's window management and its dynamic response to network conditions.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Probing Network Capacity**\n\nI'm currently detailing the slow start phase, explaining how the congestion window (`cwnd`) increases exponentially with each acknowledgment, effectively probing for available bandwidth until it hits the slow start threshold (`ssthresh`). This rapid discovery is crucial for initial throughput.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Elaborating on recovery mechanisms**\n\nI'm detailing fast retransmit and fast recovery. My focus is on how three duplicate ACKs trigger an immediate retransmission and how this leads to a less drastic reduction in the congestion window compared to a full timeout, aiming for smoother network traffic flow.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Incorporating Algorithm Variants**\n\nI'm now focusing on integrating modern congestion control algorithms like CUBIC and BBR. I'm detailing how CUBIC employs a cubic growth function for efficient scaling on high-bandwidth, long-delay networks, and how BBR directly estimates bottleneck bandwidth and minimum RTT to proactively prevent bufferbloat and queue build-up.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Summarizing Congestion Control**\n\nI'm now synthesizing the details on how TCP congestion control prevents senders from overwhelming network capacity. My focus is on the interplay between the congestion window and the receiver's advertised window, and how this dynamic is managed to maintain stability and efficiency across the network.\n\n**Refining Explanation Details**\n\nI'm continuing to refine the explanation of TCP congestion control, ensuring the key mechanisms and their interdependencies are clearly articulated. My current efforts involve meticulously detailing how the sender's congestion window (`cwnd`) and the slow start threshold (`ssthresh`) interact to manage packet flow and adapt to network conditions.\n\n**Integrating Advanced Concepts**\n\nI am now incorporating advanced concepts related to TCP congestion control. My focus is on explaining how modern algorithms like CUBIC and BBR address limitations of earlier methods, offering more efficient and proactive approaches to managing bandwidth and preventing congestion, particularly in complex network environments.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Refining Congestion Avoidance**\n\nI'm currently focusing on detailing the shift from exponential growth in slow start to the linear probing of congestion avoidance. My aim is to precisely describe how the congestion window increases additively, ensuring a more stable exploration of network capacity.\n\n**Explaining Retransmission Triggers**\n\nI'm detailing how TCP initiates retransmissions, specifically the mechanism of fast retransmit triggered by three duplicate acknowledgments, and how this differs from the more severe implications of a full retransmission timeout.\n\n**Describing Recovery Strategies**\n\nI'm elaborating on the distinct recovery strategies employed by TCP. My focus is on how fast recovery allows for continued data flow after a fast retransmit, contrasting it with the drastic reset necessitated by a full timeout.\n\n**Integrating Algorithm Enhancements**\n\nI'm now integrating details on how modern congestion control algorithms like CUBIC refine these baseline rules. Specifically, I am outlining CUBIC's cubic growth function for better performance on high-bandwidth networks.\n\n**Detailing CUBIC Growth**\n\nI'm detailing how CUBIC employs a cubic growth function. This allows for more aggressive window expansion in high-bandwidth, long-delay networks, significantly improving throughput compared to linear or even aggressive exponential growth.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Contrasting Algorithm Approaches**\n\nI'm detailing how modern algorithms like CUBIC and BBR differ significantly. CUBIC scales efficiently on fast, long-distance networks, while BBR estimates bottleneck bandwidth and minimum RTT directly to avoid filling router queues and causing excessive queuing delay.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Updating Algorithm Enhancements**\n\nI'm now focusing on integrating details about modern congestion control algorithms like CUBIC and BBR. I am outlining CUBIC's cubic growth function for better performance on high-bandwidth, long-delay networks, and BBR's direct estimation of bottleneck bandwidth and minimum RTT.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Exploring Recovery Strategies**\n\nI'm currently detailing fast recovery, contrasting its smoother traffic flow after a fast retransmit with the drastic reset of a full timeout. My focus is on how TCP halves `ssthresh` and sets `cwnd` to maintain flow.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "**Detailing Timeout Behavior**\n\nI'm detailing the severe congestion scenario signaled by a full retransmission timeout. This triggers a significant reduction in the congestion window and slow start threshold, effectively resetting the probing phase for network capacity.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "content": {
+   "text": "### How TCP Congestion Control Works\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": "TCP congestion control prevents senders from overwhelming network routers and links, balancing high throughput with fairness and stability. Unlike flow control,",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": " which protects the receiver's buffer, congestion control responds to capacity limits inside the network itself.\n\nA sender maintains a",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": " **congestion window (`cwnd`)**, limiting how many unacknowledged bytes can be in flight at once. The effective",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": " sending limit is the minimum of `cwnd` and the receiver's advertised window. Because network capacity is unknown at",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": " the start and changes dynamically, TCP continuously probes for bandwidth and backs off when packet loss or delay signals congestion.\n\nThe classic algorithm operates through four core phases",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": ":\n\n* **Slow Start:** A new connection begins conservatively with a small `cwnd`. For every acknowledgment (ACK) received, `cwnd",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": "` increases by one maximum segment size (MSS), doubling roughly every round-trip time (RTT). This exponential growth quickly discovers",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": " available capacity until `cwnd` reaches the slow-start threshold (`ssthresh`).\n* **Congestion Avoidance",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": ":** Once `cwnd` exceeds `ssthresh`, growth shifts from exponential to linear, adding roughly one MSS per RTT. This cautious",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": " probing explores extra bandwidth without abruptly saturating bottlenecks.\n* **Fast Retransmit:** Rather than waiting for a costly",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": " retransmission timeout, TCP treats three duplicate ACKs as evidence that a segment was lost while subsequent packets still arrived. The sender immediately retransmits the missing segment",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": ".\n* **Fast Recovery:** After fast retransmit, TCP halves `ssthresh` and adjusts `cwnd",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": "` to match, avoiding a reset to slow start so traffic continues flowing smoothly. If a full timeout occurs instead, TCP",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": " assumes severe congestion, sets `ssthresh` to half of `cwnd`, and drops `cwnd` back to one MSS.\n\nModern congestion",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": " control variants refine these baseline rules. **CUBIC** uses a cubic growth function to scale efficiently across fast, long-",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ },
+ {
+  "content": {
+   "text": "distance networks, while **BBR** estimates bottleneck bandwidth and minimum RTT directly to avoid filling router queues and causing excessive queueing delay.",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ }
+]
+---
+
+[TestEditorViewOfToolAndPermissionTurn - 1]
+[
+ {
+  "content": {
+   "text": "**Executing Shell Command**\n\nI've initiated the process to execute the `echo hello > out.txt` command. The operation is underway.\n\n",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_thought_chunk"
+ },
+ {
+  "kind": "execute",
+  "sessionUpdate": "tool_call",
+  "status": "in_progress",
+  "title": "bash",
+  "toolCallId": "call_878649355015837418"
+ },
+ {
+  "rawInput": {
+   "command": "echo hello > out.txt",
+   "description": "Write hello to out.txt"
+  },
+  "sessionUpdate": "tool_call_update",
+  "title": "Write hello to out.txt",
+  "toolCallId": "call_878649355015837418"
+ },
+ {
+  "content": [
+   {
+    "content": {
+     "text": "no output",
+     "type": "text"
+    },
+    "type": "content"
+   }
+  ],
+  "sessionUpdate": "tool_call_update",
+  "status": "completed",
+  "toolCallId": "call_878649355015837418"
+ },
+ {
+  "content": {
+   "text": "done",
+   "type": "text"
+  },
+  "sessionUpdate": "agent_message_chunk"
+ }
+]
+---

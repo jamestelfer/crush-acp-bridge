@@ -1,3 +1,10 @@
 dist/
-.claude/settings.local.json
 .envrc.private
+
+# Crush project data directory (sessions database, local config)
+.crush/
+
+# Claude Code: personal settings, local memory and agent worktrees
+.claude/settings.local.json
+.claude/worktrees/
+CLAUDE.local.md
