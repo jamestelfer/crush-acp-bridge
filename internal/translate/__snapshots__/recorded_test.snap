@@ -1,0 +1,214 @@
+
+[TestUpdateStreamForHTTPRecordedTurn - 1]
+[
+ {
+  "kind": "user_chunk",
+  "message_id": "672adaba-a13d-468a-b224-f1a8ad7cda71",
+  "session_id": "c38ab493-fa44-4d8c-9cf2-081dde7ab647",
+  "text": "Run the shell command 'echo hello > out.txt' and then say done."
+ },
+ {
+  "kind": "thought_chunk",
+  "message_id": "c8b8c72c-5b7e-4b5c-b86e-927c0573492c",
+  "session_id": "c38ab493-fa44-4d8c-9cf2-081dde7ab647",
+  "text": "**Executing Command**\n\nI'm currently working on executing the `echo hello > out.txt` command. My focus is on ensuring this step is handled correctly before proceeding to the final \"done.\" output.\n\n"
+ },
+ {
+  "kind": "tool_call_started",
+  "session_id": "c38ab493-fa44-4d8c-9cf2-081dde7ab647",
+  "tool_call_id": "call_2929761212474195576",
+  "tool_name": "bash"
+ },
+ {
+  "kind": "tool_call_input",
+  "raw_input": {
+   "command": "echo hello > out.txt",
+   "description": "Write hello to out.txt"
+  },
+  "session_id": "c38ab493-fa44-4d8c-9cf2-081dde7ab647",
+  "tool_call_id": "call_2929761212474195576",
+  "tool_name": "bash"
+ },
+ {
+  "description": "Execute command: echo hello > out.txt",
+  "kind": "permission_requested",
+  "permission_id": "5ab457d7-030a-4206-b481-a9df6d96bbc9",
+  "raw_params": {
+   "auto_background_after": 0,
+   "command": "echo hello > out.txt",
+   "description": "Write hello to out.txt",
+   "run_in_background": false,
+   "working_dir": ""
+  },
+  "raw_permission": {
+   "action": "execute",
+   "description": "Execute command: echo hello > out.txt",
+   "id": "5ab457d7-030a-4206-b481-a9df6d96bbc9",
+   "params": {
+    "auto_background_after": 0,
+    "command": "echo hello > out.txt",
+    "description": "Write hello to out.txt",
+    "run_in_background": false,
+    "working_dir": ""
+   },
+   "path": "/tmp/crushtrace/http",
+   "session_id": "c38ab493-fa44-4d8c-9cf2-081dde7ab647",
+   "tool_call_id": "call_2929761212474195576",
+   "tool_name": "bash"
+  },
+  "session_id": "c38ab493-fa44-4d8c-9cf2-081dde7ab647",
+  "tool_call_id": "call_2929761212474195576",
+  "tool_name": "bash"
+ },
+ {
+  "kind": "tool_call_finished",
+  "metadata": {
+   "description": "Write hello to out.txt",
+   "end_time": 1795511736765,
+   "output": "",
+   "start_time": 1795511736765,
+   "working_directory": "/tmp/crushtrace/http"
+  },
+  "output": "no output",
+  "raw_input": {
+   "command": "echo hello > out.txt",
+   "description": "Write hello to out.txt"
+  },
+  "raw_params": {
+   "auto_background_after": 0,
+   "command": "echo hello > out.txt",
+   "description": "Write hello to out.txt",
+   "run_in_background": false,
+   "working_dir": ""
+  },
+  "session_id": "c38ab493-fa44-4d8c-9cf2-081dde7ab647",
+  "tool_call_id": "call_2929761212474195576",
+  "tool_name": "bash"
+ },
+ {
+  "kind": "message_chunk",
+  "message_id": "4a86d4eb-5fd9-44fe-86cf-9d4afd91a29b",
+  "session_id": "c38ab493-fa44-4d8c-9cf2-081dde7ab647",
+  "text": "done."
+ },
+ {
+  "kind": "turn_ended",
+  "message_id": "4a86d4eb-5fd9-44fe-86cf-9d4afd91a29b",
+  "session_id": "c38ab493-fa44-4d8c-9cf2-081dde7ab647",
+  "stop_reason": "end_turn"
+ }
+]
+---
+
+[TestUpdateStreamForUnixRecordedTurns - 1]
+[
+ {
+  "kind": "user_chunk",
+  "message_id": "6762f79c-d1f9-4da1-a4a2-496457f6f0a9",
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "text": "Run the shell command 'echo hello > out.txt'. If it is refused, say refused and stop."
+ },
+ {
+  "kind": "thought_chunk",
+  "message_id": "c4cd84a7-ff9a-4d95-8c46-47a1bdba3df9",
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "text": "**Executing Simple Command**\n\nI'm currently working on executing the `echo hello > out.txt` command. My focus is on ensuring the correct implementation and output for this straightforward operation.\n\n"
+ },
+ {
+  "kind": "tool_call_started",
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "tool_call_id": "call_5030410186967221474",
+  "tool_name": "bash"
+ },
+ {
+  "kind": "tool_call_input",
+  "raw_input": {
+   "command": "echo hello > out.txt",
+   "description": "Run echo command"
+  },
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "tool_call_id": "call_5030410186967221474",
+  "tool_name": "bash"
+ },
+ {
+  "description": "Execute command: echo hello > out.txt",
+  "kind": "permission_requested",
+  "permission_id": "2c5c2fc5-83e5-450e-b8ab-712ddfbb5fa4",
+  "raw_params": {
+   "auto_background_after": 0,
+   "command": "echo hello > out.txt",
+   "description": "Run echo command",
+   "run_in_background": false,
+   "working_dir": ""
+  },
+  "raw_permission": {
+   "action": "execute",
+   "description": "Execute command: echo hello > out.txt",
+   "id": "2c5c2fc5-83e5-450e-b8ab-712ddfbb5fa4",
+   "params": {
+    "auto_background_after": 0,
+    "command": "echo hello > out.txt",
+    "description": "Run echo command",
+    "run_in_background": false,
+    "working_dir": ""
+   },
+   "path": "/tmp/crushtrace/unix",
+   "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+   "tool_call_id": "call_5030410186967221474",
+   "tool_name": "bash"
+  },
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "tool_call_id": "call_5030410186967221474",
+  "tool_name": "bash"
+ },
+ {
+  "is_error": true,
+  "kind": "tool_call_finished",
+  "output": "User denied permission",
+  "raw_input": {
+   "command": "echo hello > out.txt",
+   "description": "Run echo command"
+  },
+  "raw_params": {
+   "auto_background_after": 0,
+   "command": "echo hello > out.txt",
+   "description": "Run echo command",
+   "run_in_background": false,
+   "working_dir": ""
+  },
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "tool_call_id": "call_5030410186967221474",
+  "tool_name": "bash"
+ },
+ {
+  "kind": "turn_ended",
+  "message_id": "c4cd84a7-ff9a-4d95-8c46-47a1bdba3df9",
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "stop_reason": "end_turn"
+ },
+ {
+  "kind": "user_chunk",
+  "message_id": "a543aa58-651e-4995-9808-7b1da60c8f98",
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "text": "Now just say bye."
+ },
+ {
+  "kind": "thought_chunk",
+  "message_id": "b73b0744-a61b-498a-a3a2-c50e02b72938",
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "text": "**Recognizing Refusal**\n\nI understand now. The system explicitly denied permission for that command execution. I will not attempt it again.\n\n"
+ },
+ {
+  "kind": "message_chunk",
+  "message_id": "b73b0744-a61b-498a-a3a2-c50e02b72938",
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "text": "Refused. Bye."
+ },
+ {
+  "kind": "turn_ended",
+  "message_id": "b73b0744-a61b-498a-a3a2-c50e02b72938",
+  "session_id": "f3602434-50d2-4972-9b00-4762e2fb7c4b",
+  "stop_reason": "end_turn"
+ }
+]
+---

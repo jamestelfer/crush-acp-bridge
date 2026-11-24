@@ -9,8 +9,9 @@ OUT     the trace file to write, such as testdata/name.sse
 ACTION  the answer to every permission request: allow, allow_session or deny
 
 The script opens CWD as a workspace, sending this process's environment as
-Crush clients do, creates a session titled "trace", and sends each PROMPT in
-turn, waiting for the assistant's finish. Every line of the workspace's event
+Crush clients do, subscribes to the workspace's events, creates a session
+titled "trace", and sends each PROMPT in turn, waiting for the assistant's
+finish. Every line of the workspace's event
 stream is written to OUT. The session ID is printed on stdout; progress goes
 to stderr.
 """
@@ -62,15 +63,27 @@ def call(base, method, path, body=None):
     return json.loads(data) if data.strip() else None
 
 
-def listen(base, ws, client, action, out, turn_done, done):
+def listen(base, ws, client, action, out, turn_done, done, failure):
+    try:
+        follow(base, ws, client, action, out, turn_done, done)
+        if not done.is_set():
+            failure.append("the event stream closed before the last turn ended")
+    except BaseException as e:  # noqa: BLE001 - reported by the main thread
+        failure.append(f"event stream: {e}")
+    turn_done.set()
+
+
+def follow(base, ws, client, action, out, turn_done, done):
     c = connection(base)
     c.request("GET", f"/v1/workspaces/{ws}/events?client_id={client}",
               headers={"Accept": "text/event-stream"})
     r = c.getresponse()
+    if r.status // 100 != 2:
+        raise SystemExit(f"GET events: {r.status} {r.read()!r}")
     while not done.is_set():
         line = r.readline()
         if not line:
-            break
+            return
         out.write(line.decode())
         out.flush()
         if not line.startswith(b"data:"):
@@ -100,14 +113,16 @@ def main(argv):
     client = str(uuid.uuid4())  # Crush requires a version 4 UUID
     env = [f"{k}={v}" for k, v in os.environ.items()]
     ws = call(base, "POST", "/workspaces", {"path": cwd, "client_id": client, "env": env})["id"]
-    sid = call(base, "POST", f"/workspaces/{ws}/sessions", {"title": "trace"})["id"]
 
-    turn_done, done = threading.Event(), threading.Event()
+    turn_done, done, failure = threading.Event(), threading.Event(), []
     with open(out_path, "w", encoding="utf-8") as out:
         t = threading.Thread(target=listen, daemon=True,
-                             args=(base, ws, client, action, out, turn_done, done))
+                             args=(base, ws, client, action, out, turn_done, done, failure))
         t.start()
-        time.sleep(1)  # let the subscription start before anything happens
+        # Subscribe before creating the session, as the bridge does, so the
+        # trace opens with the session's "created" event.
+        time.sleep(1)
+        sid = call(base, "POST", f"/workspaces/{ws}/sessions", {"title": "trace"})["id"]
         # Permission requests reach only the client viewing the session.
         call(base, "POST", f"/workspaces/{ws}/current-session?client_id={client}",
              {"session_id": sid})
@@ -116,6 +131,8 @@ def main(argv):
             call(base, "POST", f"/workspaces/{ws}/agent", {"session_id": sid, "prompt": p})
             if not turn_done.wait(TIMEOUT):
                 raise SystemExit("timed out waiting for the turn to end")
+            if failure:
+                raise SystemExit(failure[0])
             print("turn done", file=sys.stderr)
         time.sleep(1)  # collect the events that follow the finish
         done.set()

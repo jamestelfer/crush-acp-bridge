@@ -23,6 +23,10 @@
 | `long-text-cancel.sse` | A streamed reply, then a cancelled turn |
 | `edit-permission.sse` | `edit` and `multiedit` calls that ask permission |
 | `write-permission.sse` | A `write` that creates a file (asked) and one that overwrites it (not asked) |
+| `http-bash-allow.sse` | A `bash` call allowed, recorded by `just record-trace` over `http://` |
+| `unix-bash-deny.sse` | A denied `bash` call, then a second prompt, recorded over `unix://` |
+
+`TestEveryTraceReplays` replays every `testdata/*.sse` through the translator, so a new trace is checked as soon as it is added.
 
 Translator tests feed each trace's `data:` lines to a `Translator` and snapshot the updates. Bridge tests serve a trace from a fake `bridge.Backend`, drive the agent over an in-memory ACP connection, and snapshot what the editor received. A trace can be cut to its first turn (`firstTurn`) or split across prompts.
 
@@ -68,20 +72,42 @@ CRUSH_SERVER_IDLE_TIMEOUT=86400 crush server --host http://127.0.0.1:8484
 
 ## Record a trace
 
-`scripts/record-trace` records a new trace against a real server. It opens the project, creates a session titled `trace`, sends each prompt and waits for the turn to end, answers every permission with one action, and writes every event line to the output file.
+`scripts/record-trace` records a new trace against a real server. It opens the project, subscribes to its events, creates a session titled `trace`, sends each prompt and waits for the turn to end. It answers every permission with one action and writes every event line to the output file. Because it subscribes first, the trace opens with the session's `created` event, as the bridge sees it. `edit-permission.sse` and `write-permission.sse` predate this and start at `client_session`.
+
+Start a server with a provider configured, then record:
 
 ```sh
-export CRUSH_ACP_URL=http://127.0.0.1:8484 LIVE_CWD=/tmp/crushlive/proj
+CRUSH_SERVER_IDLE_TIMEOUT=86400 crush server --host http://127.0.0.1:8484
+```
+
+```sh
+mkdir -p /tmp/crushtrace/edit
+export CRUSH_ACP_URL=http://127.0.0.1:8484 LIVE_CWD=/tmp/crushtrace/edit
 just record-trace edit-permission allow "Edit hello.txt to say goodbye"
 ```
 
-The recipe writes `testdata/<name>.sse`. The action is `allow`, `allow_session` or `deny`. Pass several prompts for a multi-turn trace. The script also takes a `unix://` base URL; run it directly for that, or for an output outside `testdata/`:
+The recipe writes `testdata/<name>.sse`. The action is `allow`, `allow_session` or `deny`. Pass several prompts for a multi-turn trace.
+
+`CRUSH_ACP_URL` also takes a `unix://` URL:
 
 ```sh
-scripts/record-trace unix:///run/user/1000/crush-1000.sock "$PWD" /tmp/out.sse allow "Say hi"
+crush server --host unix:///tmp/crushtrace/crush.sock
+CRUSH_ACP_URL=unix:///tmp/crushtrace/crush.sock just record-trace unix-bash-deny deny "Run 'echo hello > out.txt'" "Now say bye."
 ```
 
-The script sends its environment to the server, as Crush clients do. Use a disposable project directory, and review a new trace for secrets and personal paths before committing it.
+Keep the socket path short. Unix socket paths are limited to about 100 bytes, and Crush fails with `bind: invalid argument` on a longer one, such as a path inside a deep temporary directory.
+
+Run the script directly for an output outside `testdata/`:
+
+```sh
+scripts/record-trace unix:///tmp/crushtrace/crush.sock /tmp/crushtrace/proj /tmp/out.sse allow "Say hi"
+```
+
+The script sends its environment to the server, as Crush clients do, so run it from a shell that holds the provider credentials (for Vertex AI, `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION`). The project path appears in permission requests and tool output, so use a short, disposable directory such as `/tmp/crushtrace/<name>`. Review a new trace for secrets and personal paths before committing it.
+
+A denied permission ends the turn at once: Crush reports the tool call as failed and finishes with `end_turn`, without further assistant text. Send a second prompt to record what follows a denial.
+
+Add a replay or snapshot test for each committed trace, then run `just snapshots` and review the diff.
 
 ## Race detector
 
