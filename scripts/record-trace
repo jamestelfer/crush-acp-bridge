@@ -11,9 +11,8 @@ ACTION  the answer to every permission request: allow, allow_session or deny
 The script opens CWD as a workspace, sending this process's environment as
 Crush clients do, subscribes to the workspace's events, creates a session
 titled "trace", and sends each PROMPT in turn, waiting for the assistant's
-finish. Every line of the workspace's event
-stream is written to OUT. The session ID is printed on stdout; progress goes
-to stderr.
+finish. Every line of the workspace's event stream is written to OUT. The
+session ID is printed on stdout; progress goes to stderr.
 """
 
 import http.client
@@ -128,6 +127,10 @@ def main(argv):
              {"session_id": sid})
         for p in prompts:
             turn_done.clear()
+            # listen() records a failure before it sets turn_done, so a
+            # failure that the clear above wiped is still caught here.
+            if failure:
+                raise SystemExit(failure[0])
             call(base, "POST", f"/workspaces/{ws}/agent", {"session_id": sid, "prompt": p})
             if not turn_done.wait(TIMEOUT):
                 raise SystemExit("timed out waiting for the turn to end")
@@ -135,6 +138,8 @@ def main(argv):
                 raise SystemExit(failure[0])
             print("turn done", file=sys.stderr)
         time.sleep(1)  # collect the events that follow the finish
+        if failure:
+            raise SystemExit(failure[0])
         done.set()
     print(sid)
 

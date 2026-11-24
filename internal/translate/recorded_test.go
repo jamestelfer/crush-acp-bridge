@@ -58,28 +58,24 @@ func TestEveryTraceReplays(t *testing.T) {
 		name := filepath.Base(path)
 		t.Run(name, func(t *testing.T) {
 			tr := translate.New()
-			var ended int
 			for _, data := range replay(t, name) {
 				updates, err := tr.Feed(data)
 				require.NoError(t, err)
 				for _, u := range updates {
 					assert.NotEmpty(t, u.SessionID, "update kind %d has no session", u.Kind)
-					if u.Kind == translate.TurnEnded {
-						ended++
-					}
 				}
 			}
-			assert.NotZero(t, ended, "trace has no turn end")
+			assert.NotEmpty(t, stopReasons(t, name), "trace has no turn end")
 		})
 	}
 }
 
 func TestHTTPTraceTurnEndsOnce(t *testing.T) {
-	require.Equal(t, []string{"end_turn"}, stopReasons(t, "http-bash-allow.sse"))
+	assert.Equal(t, []string{"end_turn"}, stopReasons(t, "http-bash-allow.sse"))
 }
 
 func TestUnixTraceEndsEachPrompt(t *testing.T) {
-	require.Equal(t, []string{"end_turn", "end_turn"}, stopReasons(t, "unix-bash-deny.sse"))
+	assert.Equal(t, []string{"end_turn", "end_turn"}, stopReasons(t, "unix-bash-deny.sse"))
 }
 
 func TestUpdateStreamForHTTPRecordedTurn(t *testing.T) {

@@ -91,8 +91,13 @@ The recipe writes `testdata/<name>.sse`. The action is `allow`, `allow_session` 
 `CRUSH_ACP_URL` also takes a `unix://` URL:
 
 ```sh
-crush server --host unix:///tmp/crushtrace/crush.sock
-CRUSH_ACP_URL=unix:///tmp/crushtrace/crush.sock just record-trace unix-bash-deny deny "Run 'echo hello > out.txt'" "Now say bye."
+CRUSH_SERVER_IDLE_TIMEOUT=86400 crush server --host unix:///tmp/crushtrace/crush.sock
+```
+
+```sh
+mkdir -p /tmp/crushtrace/unix-bash-deny
+CRUSH_ACP_URL=unix:///tmp/crushtrace/crush.sock LIVE_CWD=/tmp/crushtrace/unix-bash-deny \
+  just record-trace unix-bash-deny deny "Run 'echo hello > out.txt'" "Now say bye."
 ```
 
 Keep the socket path short. Unix socket paths are limited to about 100 bytes, and Crush fails with `bind: invalid argument` on a longer one, such as a path inside a deep temporary directory.
