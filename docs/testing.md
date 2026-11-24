@@ -25,6 +25,7 @@
 | `write-permission.sse` | A `write` that creates a file (asked) and one that overwrites it (not asked) |
 | `http-bash-allow.sse` | A `bash` call allowed, recorded by `just record-trace` over `http://` |
 | `unix-bash-deny.sse` | A denied `bash` call, then a second prompt, recorded over `unix://` |
+| `question-batch.sse` | A `question` call asking a `single_choice`, a `yes_no` and a `free_text` question, recorded by `just record-trace` over `unix://` |
 
 `TestEveryTraceReplays` replays every `testdata/*.sse` through the translator, so a new trace is checked as soon as it is added.
 
@@ -72,7 +73,7 @@ CRUSH_SERVER_IDLE_TIMEOUT=86400 crush server --host http://127.0.0.1:8484
 
 ## Record a trace
 
-`scripts/record-trace` records a new trace against a real server. It opens the project, subscribes to its events, creates a session titled `trace`, sends each prompt and waits for the turn to end. It answers every permission with one action and writes every event line to the output file. Because it subscribes first, the trace opens with the session's `created` event, as the bridge sees it. `edit-permission.sse` and `write-permission.sse` predate this and start at `client_session`.
+`scripts/record-trace` records a new trace against a real server. It opens the project, subscribes to its events, creates a session titled `trace`, sends each prompt and waits for the turn to end. It answers every permission with one action, answers every question batch (yes, the first choice, or the text `Recorded answer`), and writes every event line to the output file. Because it subscribes first, the trace opens with the session's `created` event, as the bridge sees it. `edit-permission.sse` and `write-permission.sse` predate this and start at `client_session`.
 
 Start a server with a provider configured, then record:
 
