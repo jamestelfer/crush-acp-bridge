@@ -71,7 +71,9 @@ func runEditor(t *testing.T, srv *fakeCrush, editorCwd string, extraArgs ...stri
 	t.Helper()
 
 	stdinR, stdinW := io.Pipe()
-	var stdout, errBuf bytes.Buffer
+	// The bridge's goroutines may still log after run returns.
+	var stdout bytes.Buffer
+	var errBuf syncBuffer
 	done := make(chan int, 1)
 	go func() {
 		args := append([]string{"crush-acp-bridge", "--crush-url", srv.URL}, extraArgs...)
