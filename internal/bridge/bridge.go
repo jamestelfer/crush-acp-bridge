@@ -119,7 +119,17 @@ type Agent struct {
 	reconnects map[string]chan struct{}     // closed when a directory reconnects
 	modes      map[string]acp.SessionModeId // Crush's active agent, by directory
 	sessions   map[string]*session
+
+	// closing is set once Serve starts deleting empty sessions. From then on
+	// no prompt starts and no session is created, so none is deleted after
+	// the editor used it or escapes clean-up. creating counts the NewSession
+	// calls already past that check.
+	closing  bool
+	creating sync.WaitGroup
 }
+
+// errClosing refuses work that arrives while the bridge shuts down.
+var errClosing = internalError("the bridge is shutting down")
 
 // workspace is a directory the bridge has open, or is opening.
 type workspace struct {
@@ -221,6 +231,15 @@ func (a *Agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 
 // NewSession creates a Crush session and starts following its events.
 func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+	a.mu.Lock()
+	if a.closing {
+		a.mu.Unlock()
+		return acp.NewSessionResponse{}, errClosing
+	}
+	a.creating.Add(1)
+	a.mu.Unlock()
+	defer a.creating.Done()
+
 	backend, err := a.workspace(ctx, req.Cwd)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
@@ -241,7 +260,12 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	}
 	a.mu.Lock()
 	a.sessions[id].created = true
+	closing := a.closing
 	a.mu.Unlock()
+	if closing {
+		// Clean-up waits for this call, then deletes the session.
+		return acp.NewSessionResponse{}, errClosing
+	}
 	a.log.Info("session created", "session_id", id, "cwd", req.Cwd)
 	return acp.NewSessionResponse{
 		SessionId:     acp.SessionId(id),
@@ -266,11 +290,10 @@ func (a *Agent) attach(ctx context.Context, backend Backend, id, cwd string) (*a
 
 // Prompt runs one turn and returns when Crush reports it finished.
 func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResponse, error) {
-	s, err := a.lookup(req.SessionId)
+	s, err := a.startPrompt(req.SessionId)
 	if err != nil {
 		return acp.PromptResponse{}, err
 	}
-	s.prompted.Store(true) // before anything can fail: Crush may have the prompt
 	if err := a.awaitConnected(ctx, s.cwd); err != nil {
 		return acp.PromptResponse{}, err
 	}
@@ -344,6 +367,22 @@ func (a *Agent) session(id string) *session {
 
 // lookup returns the session the editor names, or an error when the bridge
 // does not track it.
+// startPrompt marks the session prompted, unless clean-up has begun. Both
+// happen under mu, so clean-up never deletes a session a prompt reached.
+func (a *Agent) startPrompt(id acp.SessionId) (*session, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closing {
+		return nil, errClosing
+	}
+	s := a.sessions[string(id)]
+	if s == nil {
+		return nil, fmt.Errorf("unknown session %q", id)
+	}
+	s.prompted.Store(true) // before anything can fail: Crush may have the prompt
+	return s, nil
+}
+
 func (a *Agent) lookup(id acp.SessionId) (*session, error) {
 	if s := a.session(string(id)); s != nil {
 		return s, nil

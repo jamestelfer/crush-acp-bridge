@@ -24,6 +24,10 @@ The bridge cleans up. Before `Serve` returns, on editor disconnect or on a signa
 
 A session Crush does not list, or a directory whose list fails, is left alone. Clean-up has 5 seconds in total. A `session/new` that fails after Crush created the session deletes it at once, since the editor never learns its ID.
 
+After a signal the editor is still connected while clean-up runs. Once clean-up starts, the bridge refuses new prompts and new sessions, so it never deletes a session a prompt reached. Clean-up first waits for any `session/new` already in flight, then deletes that session too if it is still empty.
+
+A `--managed` server outlives the signal. Only the bridge stops it, after clean-up, so the deletes reach it. A Ctrl-C in a terminal also sends `SIGINT` to the child, which shares the terminal's process group; such a run can leave empty sessions behind. The child is not moved to its own process group: a supervisor that kills the bridge's group would then orphan it.
+
 The bridge does not sweep empty `ACP` sessions when it next opens a directory. Another bridge on the same shared server may have just created one and not yet prompted it.
 
 ## Consequences

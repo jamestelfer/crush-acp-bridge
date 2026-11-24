@@ -13,6 +13,20 @@ import (
 // stays in Crush's history. Another client may have used such a session, so
 // Crush's count decides, and any doubt keeps the session.
 func (a *Agent) deleteEmpty(ctx context.Context) {
+	a.mu.Lock()
+	a.closing = true
+	a.mu.Unlock()
+	// A session/new still in flight creates a session the editor never sees.
+	created := make(chan struct{})
+	go func() {
+		a.creating.Wait()
+		close(created)
+	}()
+	select {
+	case <-created:
+	case <-ctx.Done():
+	}
+
 	candidates := map[string][]string{} // session IDs by directory
 	a.mu.Lock()
 	for id, s := range a.sessions {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,36 +35,18 @@ type fakeCrush struct {
 func newFakeCrush(t *testing.T) *fakeCrush {
 	t.Helper()
 	f := &fakeCrush{}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/health", func(http.ResponseWriter, *http.Request) {})
-	mux.HandleFunc("POST /v1/workspaces", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Path string `json:"path"`
-		}
-		_ = json.UnmarshalRead(r.Body, &body)
-		f.mu.Lock()
-		f.opened = append(f.opened, body.Path)
-		f.mu.Unlock()
-		_, _ = w.Write([]byte(`{"id":"ws-1"}`))
-	})
-	mux.HandleFunc("GET /v1/workspaces/ws-1/events", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.(http.Flusher).Flush()
-		<-r.Context().Done()
-	})
-	mux.HandleFunc("POST /v1/workspaces/ws-1/sessions", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"id":"sess-1"}`))
-	})
-	mux.HandleFunc("POST /v1/workspaces/ws-1/current-session", func(http.ResponseWriter, *http.Request) {})
-	mux.HandleFunc("GET /v1/workspaces/ws-1/sessions", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`[{"id":"sess-1","message_count":0}]`))
-	})
-	mux.HandleFunc("DELETE /v1/workspaces/ws-1/sessions/{sid}", func(_ http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		f.deleted = append(f.deleted, r.PathValue("sid"))
-		f.mu.Unlock()
-	})
-	f.Server = httptest.NewServer(mux)
+	f.Server = httptest.NewServer(fakecrush.Handler(fakecrush.Hooks{
+		OnOpen: func(path string) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.opened = append(f.opened, path)
+		},
+		OnDelete: func(sid string) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.deleted = append(f.deleted, sid)
+		},
+	}))
 	t.Cleanup(f.Close)
 	return f
 }
@@ -401,4 +384,54 @@ func TestCrushSocketWithoutSharedIsAUsageError(t *testing.T) {
 		assert.Equal(t, exitUsage, code)
 		assert.Contains(t, stderr.String(), "CRUSH_ACP_CRUSH_SOCKET")
 	})
+}
+
+// A signal ends serve's context while the managed child must stay up long
+// enough for the bridge to delete the editor's empty sessions through it.
+func TestManagedServerOutlivesASignalUntilEmptySessionsAreDeleted(t *testing.T) {
+	t.Setenv(fakecrush.EnvMode, "serve") // inherited by the child
+	t.Setenv("CRUSH_CACHE_DIR", t.TempDir())
+	var stderr syncBuffer
+	log := slog.New(slog.NewTextHandler(&stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ctx, signal := context.WithCancel(t.Context())
+	stdinR, stdinW := io.Pipe()
+	t.Cleanup(func() { _ = stdinW.Close() }) // the editor stays connected until the test ends
+	stdoutR, stdoutW := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- serve(ctx, log, serveOptions{managed: true, crushBin: os.Args[0]}, stdinR, stdoutW)
+		_ = stdoutW.Close()
+	}()
+	created := make(chan struct{})
+	go func() {
+		sc := bufio.NewScanner(stdoutR)
+		for sc.Scan() {
+			if strings.Contains(sc.Text(), `"sessionId"`) {
+				close(created)
+			}
+		}
+	}()
+	go func() {
+		_, _ = io.WriteString(stdinW, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}`+"\n")
+		_, _ = io.WriteString(stdinW, `{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/editor/project","mcpServers":[]}}`+"\n")
+	}()
+	select {
+	case <-created:
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "no session created", "stderr: %s", stderr.String())
+	}
+
+	signal()
+	select {
+	case err := <-done:
+		require.NoError(t, err, "a signal is a normal exit")
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "serve did not return after the signal")
+	}
+
+	assert.Contains(t, stderr.String(), "empty session deleted")
+	// The child's output reaches the log through a pipe, so it may lag.
+	assert.Eventually(t, func() bool {
+		return strings.Contains(stderr.String(), "fake crush: deleted session sess-1")
+	}, 5*time.Second, 10*time.Millisecond, "stderr: %s", stderr.String())
 }
