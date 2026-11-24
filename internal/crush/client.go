@@ -32,8 +32,7 @@ type Client struct {
 // schemes are Crush's own. A pipe URL fails on other platforms.
 func New(baseURL string) *Client {
 	if sock, ok := strings.CutPrefix(baseURL, "unix://"); ok {
-		var d net.Dialer
-		return localClient(func(ctx context.Context) (net.Conn, error) { return d.DialContext(ctx, "unix", sock) })
+		return localClient(func(ctx context.Context) (net.Conn, error) { return dialUnix(ctx, sock) })
 	}
 	if pipe, ok := strings.CutPrefix(baseURL, "npipe://"); ok {
 		return localClient(func(ctx context.Context) (net.Conn, error) { return dialPipe(ctx, pipe) })
@@ -47,6 +46,21 @@ func localClient(dial func(context.Context) (net.Conn, error)) *Client {
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dial(ctx) },
 	}
 	return &Client{base: "http://crush/v1", http: &http.Client{Transport: transport}, local: true}
+}
+
+// dialUnix connects to the Unix socket at path once it has confirmed that
+// the server on the other end runs as the current user.
+func dialUnix(ctx context.Context, path string) (net.Conn, error) {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", path)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyUnixPeer(conn, path); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 // isLocal reports whether baseURL names a server on this machine: a Unix
