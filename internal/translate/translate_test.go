@@ -380,3 +380,19 @@ func TestQuestionToolCallFinishesWithTheAnswers(t *testing.T) {
 	require.Equal(t, "question", finished[0].ToolName)
 	require.Contains(t, finished[0].Output, "User provided: Recorded answer")
 }
+
+func TestFailedTurnCarriesCrushsErrorAndProvider(t *testing.T) {
+	// Crush 0.102.0 ends a turn the provider refused with an error finish
+	// whose message is a title and whose details explain it.
+	event := `{"type":"message","payload":{"type":"updated","payload":{"id":"m-1","role":"assistant",` +
+		`"session_id":"s-1","provider":"vertexai","model":"gemini-4-hydrogen","parts":[{"type":"finish","data":` +
+		`{"reason":"error","time":1,"message":"Provider Error","details":"credentials: could not find default credentials"}}]}}}`
+
+	updates, err := translate.New().Feed([]byte(event))
+	require.NoError(t, err)
+
+	require.Equal(t, []translate.Update{{
+		Kind: translate.TurnEnded, SessionID: "s-1", MessageID: "m-1", StopReason: "error",
+		Provider: "vertexai", ErrorTitle: "Provider Error", ErrorDetail: "credentials: could not find default credentials",
+	}}, updates)
+}

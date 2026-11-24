@@ -146,12 +146,32 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		return fmt.Errorf("%s %s: %w", method, path, ErrNotFound)
 	}
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("%s %s: %s", method, path, resp.Status)
+		return responseError(method, path, resp)
 	}
 	if out == nil {
 		return nil
 	}
 	return json.UnmarshalRead(resp.Body, out)
+}
+
+// noAgentMessage is how Crush 0.102.0 refuses an agent request in a workspace
+// whose agent it never built, because no provider had credentials.
+const noAgentMessage = "agent coordinator not initialized"
+
+// responseError describes a failed response, with the message Crush puts in
+// its JSON error body.
+func responseError(method, path string, resp *http.Response) error {
+	var body struct {
+		Message string `json:"message"`
+	}
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if json.Unmarshal(data, &body) != nil || body.Message == "" {
+		return fmt.Errorf("%s %s: %s", method, path, resp.Status)
+	}
+	if resp.StatusCode == http.StatusBadRequest && body.Message == noAgentMessage {
+		return fmt.Errorf("%s %s: %s: %w", method, path, body.Message, ErrNoProvider)
+	}
+	return fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, body.Message)
 }
 
 // newUUID returns a random version 4 UUID. Crush rejects other client IDs.
@@ -191,6 +211,11 @@ func (w *Workspace) path(suffix string) string { return "/workspaces/" + w.id + 
 
 // ErrBusy is returned by Prompt when the session is already running a turn.
 var ErrBusy = errors.New("session is busy")
+
+// ErrNoProvider is returned when the server has no agent for the workspace:
+// none of Crush's providers had the credentials it needs when the workspace
+// opened.
+var ErrNoProvider = errors.New("crush has no usable provider")
 
 // ErrNotFound is returned when the server has no such workspace, session or
 // resource.

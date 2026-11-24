@@ -91,6 +91,13 @@ type Update struct {
 
 	// StopReason is set for TurnEnded: end_turn, cancelled, max_tokens or error.
 	StopReason string
+	// Provider is the Crush provider of the model that ran the turn, set for
+	// TurnEnded when Crush records it.
+	Provider string
+	// ErrorTitle and ErrorDetail are Crush's account of a turn that ended in
+	// an error, set for TurnEnded when Crush gives one.
+	ErrorTitle  string
+	ErrorDetail string
 }
 
 // QuestionType is the kind of answer a Question expects.
@@ -164,6 +171,7 @@ type message struct {
 	ID        string `json:"id"`
 	SessionID string `json:"session_id"`
 	Role      string `json:"role"`
+	Provider  string `json:"provider"`
 	Parts     []part `json:"parts"`
 }
 
@@ -241,7 +249,7 @@ func (t *Translator) part(msg message, p part) ([]Update, error) {
 		return t.toolResult(p.Data)
 	case "finish":
 		if assistant {
-			return t.finish(msg.ID, p.Data)
+			return t.finish(msg, p.Data)
 		}
 	case "text":
 		if assistant {
@@ -323,12 +331,14 @@ func (t *Translator) toolResult(data jsontext.Value) ([]Update, error) {
 	return []Update{u}, nil
 }
 
-func (t *Translator) finish(msgID string, data jsontext.Value) ([]Update, error) {
-	if t.ended[msgID] {
+func (t *Translator) finish(msg message, data jsontext.Value) ([]Update, error) {
+	if t.ended[msg.ID] {
 		return nil, nil
 	}
 	var d struct {
-		Reason string `json:"reason"`
+		Reason  string `json:"reason"`
+		Message string `json:"message"`
+		Details string `json:"details"`
 	}
 	if err := json.Unmarshal(data, &d); err != nil {
 		return nil, err
@@ -337,8 +347,12 @@ func (t *Translator) finish(msgID string, data jsontext.Value) ([]Update, error)
 	if !ok {
 		return nil, nil
 	}
-	t.ended[msgID] = true
-	return []Update{{Kind: TurnEnded, MessageID: msgID, StopReason: reason}}, nil
+	t.ended[msg.ID] = true
+	u := Update{Kind: TurnEnded, MessageID: msg.ID, StopReason: reason, Provider: msg.Provider}
+	if d.Reason == "error" {
+		u.ErrorTitle, u.ErrorDetail = d.Message, d.Details
+	}
+	return []Update{u}, nil
 }
 
 func (t *Translator) permission(raw jsontext.Value) ([]Update, error) {
