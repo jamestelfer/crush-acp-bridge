@@ -28,9 +28,9 @@ lint:
 xbuild *args:
     goreleaser build --snapshot --clean {{args}}
 
-# Drive the built binary against a running crush server (needs CRUSH_ACP_URL and LIVE_CWD)
-live: build
-    go test -tags live -count=1 -v ./internal/live/
+# Drive the built binary against a running crush server (needs CRUSH_ACP_URL and LIVE_CWD; TestSmoke starts its own server when CRUSH_ACP_URL is unset)
+live *args: build
+    go test -tags live -count=1 -v ./internal/live/ {{args}}
 
 acpx_version := "0.22.0"
 
