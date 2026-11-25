@@ -74,4 +74,8 @@ Clients send their environment in `env` when opening a workspace. The server res
 
 ## Cache directories
 
-The server keeps a cache directory per host under `~/.cache/crush/`, named after the address, for example `server-tcp___127.0.0.1_<port>/`. `--managed` picks a random port each run, so each run leaves a new directory: [#10](https://github.com/jamestelfer/crush-acp-bridge/issues/10). `--shared` uses one fixed socket and one directory.
+The server keeps a cache directory per host under Crush's cache root, named after the address, for example `server-tcp___127.0.0.1_<port>/` (`internal/cmd/root.go`, `perHostServerDir`). The root is `$CRUSH_CACHE_DIR`, else `$XDG_CACHE_HOME/crush`, else `%LOCALAPPDATA%\crush\cache` or `%USERPROFILE%\AppData\Local\crush\cache` on Windows, else `~/.cache/crush` (`internal/config.GlobalCacheDir`).
+
+- A `crush server` run writes only its log there: `crush.log`, plus `crush-<timestamp>.log` backups when lumberjack rotates it. Clients that spawn a server also write `start.lock`, `client.log`, `stdout.log` and `stderr.log`.
+- `--managed` without `--listen` picks a random port, which no later run reuses. Once the server exits, the bridge removes its logs and then the directory, keeping both when anything else is in it ([#10](https://github.com/jamestelfer/crush-acp-bridge/issues/10)).
+- `--managed --listen` keeps the directory, so `crush logs --host` still finds the log. `--shared` uses one fixed socket and one directory.

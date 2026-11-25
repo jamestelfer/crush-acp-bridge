@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -80,8 +82,12 @@ func MaybeRunAsServer() {
 		fmt.Fprintln(os.Stderr, "fake crush:", err)
 		os.Exit(1)
 	}
+	logFile := openLog(network, addr)
 	exit := func() {
 		_ = ln.Close() // removes a Unix socket file
+		if logFile != nil {
+			_ = logFile.Close()
+		}
 		os.Exit(0)
 	}
 
@@ -108,6 +114,33 @@ func MaybeRunAsServer() {
 		fmt.Fprintln(os.Stderr, "fake crush:", err)
 		os.Exit(1)
 	}
+}
+
+// safeName matches the characters Crush replaces to name a server's cache
+// directory (Crush 0.102.0, internal/cmd/root.go safeNameRegexp).
+var safeName = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+
+// openLog opens the server log where Crush keeps it,
+// $CRUSH_CACHE_DIR/server-<safe host>/crush.log, and holds it open as Crush
+// does. It writes nothing unless a test sets CRUSH_CACHE_DIR, so the fake
+// never touches the real cache.
+func openLog(network, addr string) *os.File {
+	cache := os.Getenv("CRUSH_CACHE_DIR")
+	if cache == "" {
+		return nil
+	}
+	dir := filepath.Join(cache, "server-"+safeName.ReplaceAllString(network+"://"+addr, "_"))
+	if err := os.MkdirAll(dir, 0o700); err != nil { //nolint:gosec // test fake; the test chooses the directory
+		fmt.Fprintln(os.Stderr, "fake crush:", err)
+		os.Exit(1)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "crush.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // test fake; the test chooses the directory
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fake crush:", err)
+		os.Exit(1)
+	}
+	_, _ = fmt.Fprintln(f, `{"msg":"Starting Crush server..."}`)
+	return f
 }
 
 // hostArg returns the listen address from `--host <url>` in args. Without

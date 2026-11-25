@@ -3,6 +3,10 @@
 // Crush's server exits when it has been idle for 60 seconds. A bridge that
 // owns the server decides how long it lives, so Start raises that limit
 // unless the caller chose one.
+//
+// Crush keeps each server's log in a cache directory named after its
+// address. A server on a port Start picked never runs at that address again,
+// so Start removes the directory once the server exits.
 package crushserver
 
 import (
@@ -16,6 +20,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -79,11 +87,16 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		timeout = defaultStartTimeout
 	}
 
+	env := childEnv(opts.Env)
 	addr := opts.Listen
+	var tidyDir string // the server's cache directory, removed once it exits
 	if addr == "" {
 		var err error
 		if addr, err = freeAddr(); err != nil {
 			return nil, fmt.Errorf("pick a port for crush server: %w", err)
+		}
+		if cache := cacheDir(runtime.GOOS, envLookup(runtime.GOOS, env)); cache != "" {
+			tidyDir = serverCacheDir(cache, addr)
 		}
 	}
 	args := []string{"server", "--host", "http://" + addr}
@@ -95,7 +108,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	// child if it has not exited after stopGrace.
 	runCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(runCtx, binary, args...) //nolint:gosec // the crush binary is chosen by the operator
-	cmd.Env = childEnv(opts.Env)
+	cmd.Env = env
 	cmd.Cancel = func() error {
 		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			return cmd.Process.Kill() // no SIGTERM on this platform
@@ -119,8 +132,11 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	go func() {
 		err := cmd.Wait()
 		_ = outW.Close()
-		close(s.done)
 		log.Info("crush server exited", "error", err)
+		if tidyDir != "" {
+			removeServerCache(log, tidyDir)
+		}
+		close(s.done)
 	}()
 
 	switch err := pollHealthy(ctx, crush.New(s.url), timeout, s.done); {
@@ -135,7 +151,8 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 }
 
 // Stop asks the server to exit and waits for it, killing it after a grace
-// period. It is safe to call more than once.
+// period. Once it returns, the cache directory of a server on a picked port
+// is gone. It is safe to call more than once.
 func (s *Server) Stop() error {
 	s.cancel()
 	<-s.done
@@ -216,4 +233,105 @@ func freeAddr() (string, error) {
 	}
 	defer func() { _ = l.Close() }()
 	return l.Addr().String(), nil
+}
+
+// cacheDir returns the cache directory Crush uses on goos with the
+// environment getenv reads, or "" when no home directory is known. It mirrors
+// Crush's own rule (Crush 0.102.0, internal/config.GlobalCacheDir).
+func cacheDir(goos string, getenv func(string) string) string {
+	if dir := getenv("CRUSH_CACHE_DIR"); dir != "" {
+		return dir
+	}
+	if dir := getenv("XDG_CACHE_HOME"); dir != "" {
+		return filepath.Join(dir, "crush")
+	}
+	if goos == "windows" {
+		if dir := getenv("LOCALAPPDATA"); dir != "" {
+			return filepath.Join(dir, "crush", "cache")
+		}
+		if home := getenv("USERPROFILE"); home != "" {
+			return filepath.Join(home, "AppData", "Local", "crush", "cache")
+		}
+		return ""
+	}
+	if home := getenv("HOME"); home != "" {
+		return filepath.Join(home, ".cache", "crush")
+	}
+	return ""
+}
+
+// unsafeHostChars matches the characters Crush replaces with "_" to name a
+// server's cache directory (Crush 0.102.0, internal/cmd/root.go).
+var unsafeHostChars = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+
+// serverCacheDir returns the directory in cache where Crush keeps the state
+// of a server listening on the TCP address addr. Crush treats an http:// host
+// as tcp://, so the name is server-tcp___<host>_<port>.
+func serverCacheDir(cache, addr string) string {
+	return filepath.Join(cache, "server-"+unsafeHostChars.ReplaceAllString("tcp://"+addr, "_"))
+}
+
+// envLookup returns a getenv over env, a list of KEY=value entries, as a child
+// on goos sees it. The last entry for a key wins. Windows matches keys
+// without regard to case.
+func envLookup(goos string, env []string) func(string) string {
+	return func(key string) string {
+		for _, kv := range slices.Backward(env) {
+			k, v, ok := strings.Cut(kv, "=")
+			if ok && (k == key || goos == "windows" && strings.EqualFold(k, key)) {
+				return v
+			}
+		}
+		return ""
+	}
+}
+
+// serverLogs matches a server's log and its rotated backups, the only files
+// Crush keeps in a server's cache directory (Crush 0.102.0, internal/log:
+// lumberjack names a backup crush-<timestamp>.log).
+var serverLogs = []string{"crush.log", "crush-*.log"}
+
+// removeRetry bounds how long removeServerCache retries a removal. On Windows
+// a handle on crush.log can outlive the killed server briefly, held by the
+// virus scanner or the indexer, and removal fails until it is released.
+const removeRetry = time.Second
+
+// removeServerCache removes a stopped server's logs and then its cache
+// directory. Anything else in the directory is not known to be disposable, so
+// it and the directory are kept.
+func removeServerCache(log *slog.Logger, dir string) {
+	for _, pattern := range serverLogs {
+		matches, _ := filepath.Glob(filepath.Join(dir, pattern)) // only a malformed pattern errors
+		for _, f := range matches {
+			if err := removeWithRetry(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+				log.Warn("could not remove crush server log", "path", f, "error", err)
+			}
+		}
+	}
+	if rest, err := os.ReadDir(dir); err == nil && len(rest) > 0 {
+		log.Warn("kept crush server cache directory", "path", dir, "reason", "holds files other than logs")
+		return
+	}
+	switch err := removeWithRetry(dir); {
+	case err == nil:
+		log.Debug("removed crush server cache directory", "path", dir)
+	case errors.Is(err, os.ErrNotExist):
+	default:
+		log.Warn("kept crush server cache directory", "path", dir, "error", err)
+	}
+}
+
+// removeWithRetry removes path, retrying with backoff for up to removeRetry
+// while removal fails for any reason other than path not existing.
+func removeWithRetry(path string) error {
+	deadline := time.Now().Add(removeRetry)
+	delay := 10 * time.Millisecond
+	for {
+		err := os.Remove(path)
+		if err == nil || errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(delay)
+		delay = min(2*delay, 200*time.Millisecond)
+	}
 }
