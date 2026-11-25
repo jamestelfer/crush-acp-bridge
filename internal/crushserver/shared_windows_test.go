@@ -3,7 +3,6 @@
 package crushserver_test
 
 import (
-	"context"
 	"crypto/rand"
 	"net"
 	"testing"
@@ -23,10 +22,6 @@ func sharedTarget(t *testing.T) (crushserver.SharedOptions, string) {
 	opts := sharedOptions(t)
 	opts.Socket = `\\.\pipe\crush-acp-test-` + rand.Text()
 	return opts, opts.Socket
-}
-
-func dialAddress(ctx context.Context, addr string) (net.Conn, error) {
-	return winio.DialPipeContext(ctx, addr)
 }
 
 func listenAt(t *testing.T, addr string) net.Listener {

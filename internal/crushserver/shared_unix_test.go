@@ -3,7 +3,6 @@
 package crushserver_test
 
 import (
-	"context"
 	"net"
 	"net/http"
 	"os"
@@ -24,11 +23,6 @@ func sharedTarget(t *testing.T) (crushserver.SharedOptions, string) {
 	t.Helper()
 	t.Setenv("XDG_RUNTIME_DIR", shortDir(t))
 	return sharedOptions(t), crushserver.DefaultSocket()
-}
-
-func dialAddress(ctx context.Context, addr string) (net.Conn, error) {
-	var d net.Dialer
-	return d.DialContext(ctx, "unix", addr)
 }
 
 func listenAt(t *testing.T, addr string) net.Listener {

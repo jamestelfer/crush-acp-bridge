@@ -2,8 +2,6 @@ package crushserver_test
 
 import (
 	"context"
-	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,34 +20,18 @@ import (
 // The shared server tests run on every platform: against Crush's default
 // Unix socket, or a named pipe of their own on Windows (see sharedTarget).
 
-func addressClient(addr string) *http.Client {
-	return &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dialAddress(ctx, addr) },
-	}}
-}
-
 // fakeCall sends a request to a fake server's debug endpoint.
 func fakeCall(t *testing.T, addr, method, path string) string {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), method, "http://crush"+path, nil)
+	body, err := fakecrush.Call(t.Context(), addr, method, path)
 	require.NoError(t, err)
-	resp, err := addressClient(addr).Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return string(body)
+	return body
 }
 
 // stopShared stops a detached fake server, which outlives the test otherwise.
 func stopShared(t *testing.T, addr string) {
 	t.Helper()
-	t.Cleanup(func() {
-		req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://crush/_fake/exit", nil)
-		if resp, err := addressClient(addr).Do(req); err == nil {
-			_ = resp.Body.Close()
-		}
-	})
+	t.Cleanup(func() { assert.NoError(t, fakecrush.Stop(addr)) })
 }
 
 func sharedOptions(t *testing.T) crushserver.SharedOptions {

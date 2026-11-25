@@ -1,59 +1,30 @@
-//go:build !windows
-
 package main
 
 import (
 	"bufio"
-	"context"
 	"encoding/json/v2"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/jamestelfer/crush-acp-bridge/internal/crushserver"
 	"github.com/jamestelfer/crush-acp-bridge/internal/fakecrush"
 )
 
-// sharedEnv points Crush's default socket at a fresh directory and stops any
-// detached fake server the test leaves behind.
-func sharedEnv(t *testing.T) string {
-	t.Helper()
-	dir, err := os.MkdirTemp("", "cab")
-	require.NoError(t, err)
-	t.Setenv("XDG_RUNTIME_DIR", dir)
-	t.Setenv("XDG_CACHE_HOME", t.TempDir()) // the shared server log
-	t.Setenv(fakecrush.EnvMode, "serve")
-	sock := crushserver.DefaultSocket()
-	t.Cleanup(func() {
-		_, _ = socketGet(sock, http.MethodPost, "/_fake/exit")
-		time.Sleep(100 * time.Millisecond)
-		_ = os.RemoveAll(dir)
-	})
-	return sock
-}
+// The --shared tests run on every platform: against Crush's default Unix
+// socket in a fresh directory, or Crush's default named pipe on Windows. The
+// helpers sharedEnv, defaultAddress and explicitAddress are per platform.
 
-func socketGet(sock, method, path string) (string, error) {
-	var d net.Dialer
-	client := http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return d.DialContext(ctx, "unix", sock) },
-	}}
-	req, err := http.NewRequestWithContext(context.Background(), method, "http://crush"+path, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
-	return string(body), err
+// stopShared stops a detached fake server at addr when the test ends, since
+// it outlives the test otherwise.
+func stopShared(t *testing.T, addr string) {
+	t.Helper()
+	t.Cleanup(func() { assert.NoError(t, fakecrush.Stop(addr)) })
 }
 
 // openSession runs the bridge with args, creates one session, disconnects,
@@ -108,38 +79,34 @@ func openSession(t *testing.T, args ...string) (string, int, string) {
 }
 
 func TestSharedModeStartsCrushsServerAndLeavesItForOtherClients(t *testing.T) {
-	sock := sharedEnv(t)
+	sharedEnv(t)
+	addr := defaultAddress(t)
+	stopShared(t, addr)
 
 	sid, code, stderr := openSession(t, "--shared", "--crush-bin", os.Args[0])
 	require.Equal(t, exitOK, code, "stderr: %s", stderr)
 	require.Equal(t, "sess-1", sid)
 
-	pid, err := socketGet(sock, http.MethodGet, "/_fake/pid")
+	pid, err := fakecrush.Call(t.Context(), addr, http.MethodGet, "/_fake/pid")
 	require.NoError(t, err, "the server outlives the bridge that started it")
 
 	sid, code, stderr = openSession(t, "--shared", "--crush-bin", filepath.Join(t.TempDir(), "no-crush"))
 	require.Equal(t, exitOK, code, "a second bridge joins without starting anything; stderr: %s", stderr)
 	require.Equal(t, "sess-1", sid)
-	again, err := socketGet(sock, http.MethodGet, "/_fake/pid")
+	again, err := fakecrush.Call(t.Context(), addr, http.MethodGet, "/_fake/pid")
 	require.NoError(t, err)
 	require.Equal(t, pid, again, "both bridges used one server")
 }
 
 func TestSharedModeHonoursAnExplicitSocket(t *testing.T) {
 	sharedEnv(t)
-	dir, err := os.MkdirTemp("", "cab")
-	require.NoError(t, err)
-	sock := filepath.Join(dir, "mine.sock")
-	t.Cleanup(func() {
-		_, _ = socketGet(sock, http.MethodPost, "/_fake/exit")
-		time.Sleep(100 * time.Millisecond)
-		_ = os.RemoveAll(dir)
-	})
+	addr := explicitAddress(t)
+	stopShared(t, addr)
 
-	_, code, stderr := openSession(t, "--shared", "--crush-bin", os.Args[0], "--crush-socket", sock)
+	_, code, stderr := openSession(t, "--shared", "--crush-bin", os.Args[0], "--crush-socket", addr)
 
 	require.Equal(t, exitOK, code, "stderr: %s", stderr)
-	_, err = socketGet(sock, http.MethodGet, "/_fake/pid")
+	_, err := fakecrush.Call(t.Context(), addr, http.MethodGet, "/_fake/pid")
 	require.NoError(t, err)
 }
 
