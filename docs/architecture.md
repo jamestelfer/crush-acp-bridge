@@ -38,6 +38,8 @@ Each workspace has its own client ID and event stream. Each ACP session ID is th
 
 Crush keeps one model and one main agent per directory, so model and mode changes apply to the directory and the bridge notifies the directory's other sessions.
 
+Before `Serve` returns, the bridge deletes the sessions it created and the editor never prompted, when Crush still lists them as idle with no messages. Editors such as Paseo open such sessions to probe the agent. See [ADR 9](adr/0009-delete-empty-sessions-on-exit.md).
+
 ## Event flow
 
 1. `Workspace.Events` opens `GET /v1/workspaces/{id}/events` and sends each SSE `data:` line on a channel.

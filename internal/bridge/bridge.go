@@ -23,6 +23,7 @@ import (
 // satisfies it.
 type Backend interface {
 	NewSession(ctx context.Context, title string) (string, error)
+	DeleteSession(ctx context.Context, sessionID string) error
 	SetCurrentSession(ctx context.Context, sessionID string) error
 	Prompt(ctx context.Context, sessionID, text string) error
 	Cancel(ctx context.Context, sessionID string) error
@@ -51,7 +52,8 @@ func WithLogger(l *slog.Logger) Option {
 }
 
 // Serve runs the ACP agent over in and out until the peer disconnects or ctx
-// ends. Each ACP session opens Crush in the directory the editor sends.
+// ends. Each ACP session opens Crush in the directory the editor sends. Before
+// it returns, Serve deletes the sessions it created that are still empty.
 func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts ...Option) error {
 	a := &Agent{
 		open:       open,
@@ -81,8 +83,16 @@ func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts .
 	case <-conn.Done():
 	case <-ctx.Done():
 	}
+	// ctx may already be cancelled by a signal; clean-up still gets a bounded
+	// chance to reach Crush.
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupWait)
+	defer cancel()
+	a.deleteEmpty(cleanup)
 	return ctx.Err()
 }
+
+// cleanupWait bounds how long Serve spends deleting empty sessions.
+const cleanupWait = 5 * time.Second
 
 // gatedReader holds every Read until open closes.
 type gatedReader struct {
@@ -109,7 +119,17 @@ type Agent struct {
 	reconnects map[string]chan struct{}     // closed when a directory reconnects
 	modes      map[string]acp.SessionModeId // Crush's active agent, by directory
 	sessions   map[string]*session
+
+	// closing is set once Serve starts deleting empty sessions. From then on
+	// no prompt starts and no session is created, so none is deleted after
+	// the editor used it or escapes clean-up. creating counts the NewSession
+	// calls already past that check.
+	closing  bool
+	creating sync.WaitGroup
 }
+
+// errClosing refuses work that arrives while the bridge shuts down.
+var errClosing = internalError("the bridge is shutting down")
 
 // workspace is a directory the bridge has open, or is opening.
 type workspace struct {
@@ -128,6 +148,12 @@ type workspace struct {
 type session struct {
 	cwd  string
 	turn chan turnEnd
+
+	// created is set when this bridge created the session in Crush, and
+	// prompted once the editor sends it a prompt. Serve deletes a session it
+	// created and never prompted if Crush still holds no messages for it.
+	created  bool
+	prompted atomic.Bool
 	// active is set while a Prompt call waits for its turn. Turns started by
 	// other clients (the Crush TUI) also end in this session; their ends must
 	// not complete a later prompt.
@@ -205,6 +231,15 @@ func (a *Agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 
 // NewSession creates a Crush session and starts following its events.
 func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+	a.mu.Lock()
+	if a.closing {
+		a.mu.Unlock()
+		return acp.NewSessionResponse{}, errClosing
+	}
+	a.creating.Add(1)
+	a.mu.Unlock()
+	defer a.creating.Done()
+
 	backend, err := a.workspace(ctx, req.Cwd)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
@@ -215,7 +250,21 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	}
 	modes, err := a.attach(ctx, backend, id, req.Cwd)
 	if err != nil {
+		// The editor never learns the ID, so nothing can use the session.
+		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupWait)
+		defer cancel()
+		if derr := backend.DeleteSession(dctx, id); derr != nil {
+			a.log.Warn("empty session not deleted", "session_id", id, "cwd", req.Cwd, "error", derr)
+		}
 		return acp.NewSessionResponse{}, err
+	}
+	a.mu.Lock()
+	a.sessions[id].created = true
+	closing := a.closing
+	a.mu.Unlock()
+	if closing {
+		// Clean-up waits for this call, then deletes the session.
+		return acp.NewSessionResponse{}, errClosing
 	}
 	a.log.Info("session created", "session_id", id, "cwd", req.Cwd)
 	return acp.NewSessionResponse{
@@ -241,7 +290,7 @@ func (a *Agent) attach(ctx context.Context, backend Backend, id, cwd string) (*a
 
 // Prompt runs one turn and returns when Crush reports it finished.
 func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResponse, error) {
-	s, err := a.lookup(req.SessionId)
+	s, err := a.startPrompt(req.SessionId)
 	if err != nil {
 		return acp.PromptResponse{}, err
 	}
@@ -318,6 +367,22 @@ func (a *Agent) session(id string) *session {
 
 // lookup returns the session the editor names, or an error when the bridge
 // does not track it.
+// startPrompt marks the session prompted, unless clean-up has begun. Both
+// happen under mu, so clean-up never deletes a session a prompt reached.
+func (a *Agent) startPrompt(id acp.SessionId) (*session, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closing {
+		return nil, errClosing
+	}
+	s := a.sessions[string(id)]
+	if s == nil {
+		return nil, fmt.Errorf("unknown session %q", id)
+	}
+	s.prompted.Store(true) // before anything can fail: Crush may have the prompt
+	return s, nil
+}
+
 func (a *Agent) lookup(id acp.SessionId) (*session, error) {
 	if s := a.session(string(id)); s != nil {
 		return s, nil

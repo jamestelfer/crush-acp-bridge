@@ -170,7 +170,13 @@ type serveOptions struct {
 func serve(ctx context.Context, log *slog.Logger, opts serveOptions, stdin io.Reader, stdout io.Writer) error {
 	crushURL := opts.crushURL
 	if opts.managed {
-		srv, err := crushserver.Start(ctx, crushserver.Options{
+		// A signal ends ctx, and bridge.Serve then deletes empty sessions
+		// through this server. So once it is up, only the deferred Stop ends
+		// it, after Serve returns. A signal during start-up still aborts it.
+		srvCtx, abort := context.WithCancel(context.WithoutCancel(ctx))
+		defer abort()
+		abortOnSignal := context.AfterFunc(ctx, abort)
+		srv, err := crushserver.Start(srvCtx, crushserver.Options{
 			Binary: opts.crushBin,
 			Listen: opts.listen,
 			Logger: log,
@@ -179,6 +185,7 @@ func serve(ctx context.Context, log *slog.Logger, opts serveOptions, stdin io.Re
 			return fmt.Errorf("start crush server: %w", err)
 		}
 		defer func() { _ = srv.Stop() }()
+		abortOnSignal()
 		crushURL = srv.URL()
 	}
 	// ensure brings the shared server up; it runs again before every reopen,

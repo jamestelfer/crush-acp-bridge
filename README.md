@@ -133,11 +133,18 @@ startup with a clear message if the server is unreachable.
 ### Share the session with the Crush TUI
 
 Run Crush with `CRUSH_CLIENT_SERVER=1`. With `--shared`, no address is needed. Otherwise pass the server's
-`--host`. The ACP session ID is the Crush session ID.
+`--host`. The ACP session ID is the Crush session ID: `session/new` creates the Crush session at once and
+returns its ID, and `session/load` and `session/resume` take any Crush session ID from that directory.
 
 ```sh
 CRUSH_CLIENT_SERVER=1 crush --cwd /path/to/project --session <session-id>
 ```
+
+When the bridge exits, it deletes the sessions it created that nobody prompted, so editor probes leave no
+empty `ACP` sessions in Crush's history. A session that received a prompt from any client is kept. Clean-up
+also runs on `SIGINT` and `SIGTERM`, and a `--managed` server stays up until it finishes. A bridge that is
+killed outright (`SIGKILL`) cannot clean up, and its empty sessions remain. So can a `--managed` bridge
+stopped with Ctrl-C in a terminal, which interrupts its `crush server` child too.
 
 Without `CRUSH_CLIENT_SERVER=1`, Crush 0.102.0 ignores `--host` and runs its own agent against the same
 database. Sessions then appear in history, but turns are not shared live: the TUI and the editor do not

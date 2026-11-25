@@ -75,7 +75,7 @@ func TestEnsureSharedStartsADetachedServerThatOutlivesTheBridge(t *testing.T) {
 func TestEnsureSharedReusesARunningServer(t *testing.T) {
 	opts, addr := sharedTarget(t)
 	ln := listenAt(t, addr)
-	srv := &http.Server{Handler: fakecrush.Handler(nil), ReadHeaderTimeout: time.Second}
+	srv := &http.Server{Handler: fakecrush.Handler(fakecrush.Hooks{}), ReadHeaderTimeout: time.Second}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 

@@ -27,9 +27,17 @@ import (
 // never listen).
 const EnvMode = "CRUSH_FAKE_SERVER"
 
-// Handler returns an http.Handler for the fake server. onOpen, when non-nil,
-// is called with the path of each workspace the client opens.
-func Handler(onOpen func(path string)) http.Handler {
+// Hooks report what a client asks the fake server to do. Nil hooks are
+// skipped.
+type Hooks struct {
+	// OnOpen is called with the path of each workspace the client opens.
+	OnOpen func(path string)
+	// OnDelete is called with the ID of each session the client deletes.
+	OnDelete func(sessionID string)
+}
+
+// Handler returns an http.Handler for the fake server.
+func Handler(hooks Hooks) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", func(http.ResponseWriter, *http.Request) {})
 	mux.HandleFunc("GET /_fake/env", func(w http.ResponseWriter, r *http.Request) {
@@ -41,8 +49,8 @@ func Handler(onOpen func(path string)) http.Handler {
 			Path string `json:"path"`
 		}
 		_ = json.UnmarshalRead(r.Body, &body)
-		if onOpen != nil {
-			onOpen(body.Path)
+		if hooks.OnOpen != nil {
+			hooks.OnOpen(body.Path)
 		}
 		_, _ = w.Write([]byte(`{"id":"ws-1"}`))
 	})
@@ -55,6 +63,15 @@ func Handler(onOpen func(path string)) http.Handler {
 		_, _ = w.Write([]byte(`{"id":"sess-1"}`))
 	})
 	mux.HandleFunc("POST /v1/workspaces/ws-1/current-session", func(http.ResponseWriter, *http.Request) {})
+	// sess-1 never holds messages, so a bridge deletes it when it exits.
+	mux.HandleFunc("GET /v1/workspaces/ws-1/sessions", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":"sess-1","message_count":0}]`))
+	})
+	mux.HandleFunc("DELETE /v1/workspaces/ws-1/sessions/{sid}", func(_ http.ResponseWriter, r *http.Request) {
+		if hooks.OnDelete != nil {
+			hooks.OnDelete(r.PathValue("sid"))
+		}
+	})
 	return mux
 }
 
@@ -92,7 +109,10 @@ func MaybeRunAsServer() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", Handler(nil))
+	// A test reads deletions from the bridge's log of the child's output.
+	mux.Handle("/", Handler(Hooks{OnDelete: func(sid string) {
+		fmt.Fprintln(os.Stderr, "fake crush: deleted session", sid)
+	}}))
 	mux.HandleFunc("GET /_fake/pid", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, os.Getpid())
 	})

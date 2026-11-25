@@ -14,6 +14,7 @@ All paths are under `/v1`. Workspace paths are under `/workspaces/{id}`, where `
 | `POST …/current-session` | `?client_id=`; `session_id` | Reports which session the client views. Permission requests reach only the client viewing the session. |
 | `POST …/sessions` | `title` | Creates a session. Returns `id`. |
 | `GET …/sessions` | | Lists sessions, including sub-agent sessions. |
+| `DELETE …/sessions/{sid}` | | Deletes a session and its messages. |
 | `GET …/sessions/{sid}/messages` | | A session's messages, in order, in the shape of the event stream's `message` payloads. |
 | `POST …/agent` | `session_id`, `prompt` | Starts a turn. Returns at once; the turn runs on the server. |
 | `POST …/agent/sessions/{sid}/cancel` | | Cancels the running turn. |
