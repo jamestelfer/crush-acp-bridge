@@ -14,7 +14,7 @@ import (
 
 // scriptTraces are recorded by scripts/record-trace against a real Crush
 // server, one per transport the script supports.
-var scriptTraces = []string{"http-bash-allow.sse", "unix-bash-deny.sse"}
+var scriptTraces = []string{"http-bash-allow.sse", "unix-bash-deny.sse", "question-batch.sse"}
 
 // eventHead is the envelope every Crush SSE event shares.
 type eventHead struct {
@@ -84,4 +84,12 @@ func TestUpdateStreamForHTTPRecordedTurn(t *testing.T) {
 
 func TestUpdateStreamForUnixRecordedTurns(t *testing.T) {
 	snaps.MatchJSON(t, streamOf(t, "unix-bash-deny.sse"))
+}
+
+func TestQuestionTraceTurnEndsOnce(t *testing.T) {
+	assert.Equal(t, []string{"end_turn"}, stopReasons(t, "question-batch.sse"))
+}
+
+func TestUpdateStreamForQuestionTurn(t *testing.T) {
+	snaps.MatchJSON(t, streamOf(t, "question-batch.sse"))
 }

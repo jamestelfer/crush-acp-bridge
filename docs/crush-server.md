@@ -19,6 +19,8 @@ All paths are under `/v1`. Workspace paths are under `/workspaces/{id}`, where `
 | `POST …/agent` | `session_id`, `prompt`, `attachments` | Starts a turn. Returns at once; the turn runs on the server. Each attachment has `file_path`, `file_name`, `mime_type` and base64 `content`. Crush inlines `text/*` attachments into the prompt, passes `image/*` and `audio/*` ones to a model with that capability, and drops them silently otherwise. A prompt needs text or a text attachment. |
 | `POST …/agent/sessions/{sid}/cancel` | | Cancels the running turn. |
 | `POST …/permissions/grant` | `action`, `permission` | Answers a permission request. `permission` is the request payload as received; `action` is `allow`, `allow_session` or `deny`. |
+| `POST …/questions/answer` | `batch_request_id`, `responses` | Answers a question batch. Each response has `request_id` (the question's `id`) and one of `selected_ids`, `yes` or `fill_in_text`; a response with none skips the question. Returns `resolved`, false when the batch was no longer pending. |
+| `POST …/questions/cancel` | `batch_request_id` | Cancels a question batch. The question tool fails with `User cancelled this question` and the turn ends. Returns `resolved`. |
 | `POST …/agent/main` | `agent_id` | Sets the main agent, `coder` or `plan`. |
 | `GET …/config` | | The workspace's configuration: `models` (`large`, `small`) and `providers`, each with `name`, `disable` and `models`. A model's `capabilities.vision` says whether it accepts images. |
 | `POST …/config/model` | `scope`, `model_type`, `model` | Sets the `large` or `small` model. Scope `1` (`config.ScopeWorkspace`) writes `.crush/crush.json` in the project, as `crush run --model` does. |
@@ -39,14 +41,15 @@ Each SSE `data:` line is a JSON envelope:
 {"type": "message", "payload": {"type": "updated", "payload": { … }}}
 ```
 
-The outer `type` names the stream; the inner `type` is `created` or `updated`; the inner `payload` is the object. Types seen in traces: `session`, `client_session`, `message`, `permission_request`, `permission_notification`, `agent_event`, `file` and `run_complete`. The bridge reads only `message` and `permission_request`.
+The outer `type` names the stream; the inner `type` is `created` or `updated`; the inner `payload` is the object. Types seen in traces: `session`, `client_session`, `message`, `permission_request`, `permission_notification`, `question_batch_request`, `question_batch_notification`, `agent_event`, `file` and `run_complete`. The bridge reads only `message`, `permission_request` and `question_batch_request`.
 
 - `message` payloads are whole-message snapshots, resent as the message grows. Each carries `id`, `session_id`, `role` and `parts`. Part types include `text`, `reasoning`, `tool_call`, `tool_result` and `finish`.
 - An assistant `finish` part's `reason` is `end_turn`, `canceled`, `max_tokens`, `error`, `content_filter` or `unknown`, or a value for a tool round trip that does not end the turn.
 - `run_complete` arrives before the final message update when a turn is cancelled, so it does not mark the end of a turn.
 - `permission_request` payloads carry `id`, `session_id`, `tool_call_id`, `tool_name`, `description`, `action` and `params`. For `edit`, `multiedit` and `write`, `params` holds `file_path`, `old_content` and `new_content`.
+- `question_batch_request` payloads carry `id` (the batch), `session_id`, `tool_call_id`, `questions`, and `confirm_title` and `confirm_description` for a batch of several. Each question has `id`, `type` (`yes_no`, `single_choice`, `multi_choice` or `free_text`), `label`, `question`, `description` and, for the choice types, `choices` of `id`, `label` and `description`. Crush's `question` tool raises it and blocks until the batch is answered or cancelled. Only an interactive agent has the tool; a workspace that Crush opens for a client gets one. `question_batch_notification` (`batch_id`, `session_id`) follows when the batch is resolved.
 - Tool result metadata of `edit` and `multiedit` holds `old_content` and `new_content`. A `write` result holds only a unified `diff`. Crush omits empty content, so a missing `old_content` means a new or empty file.
-- A server that drops a slow client ends its stream. Events published while a client is unsubscribed are lost. A client may subscribe again with the same `client_id`; a server that does not serve the workspace answers `404`. Reporting the current session again re-delivers pending permission requests.
+- A server that drops a slow client ends its stream. Events published while a client is unsubscribed are lost. A client may subscribe again with the same `client_id`; a server that does not serve the workspace answers `404`. Reporting the current session again re-delivers pending permission requests and question batches.
 
 ## Sessions
 

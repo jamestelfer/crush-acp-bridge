@@ -210,6 +210,47 @@ func TestGrantEchoesRequestWithChosenAction(t *testing.T) {
 	}, req.Body["permission"])
 }
 
+func TestAnswerQuestionsSendsEachResponseAsCrushDecodesIt(t *testing.T) {
+	ws, srv := openFake(t, map[string]http.HandlerFunc{
+		"POST /v1/workspaces/ws-1/questions/answer": func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, map[string]any{"resolved": true})
+		},
+	})
+	yes := true
+
+	resolved, err := ws.AnswerQuestions(t.Context(), "batch-1", []crush.QuestionAnswer{
+		{QuestionID: "q-choice", SelectedIDs: []string{"en"}},
+		{QuestionID: "q-yes", Yes: &yes},
+		{QuestionID: "q-text", FillInText: "Ada"},
+		{QuestionID: "q-skipped"},
+	})
+	require.NoError(t, err)
+	assert.True(t, resolved)
+
+	req := srv.last()
+	assert.Equal(t, "batch-1", req.Body["batch_request_id"])
+	assert.Equal(t, []any{
+		map[string]any{"request_id": "q-choice", "selected_ids": []any{"en"}},
+		map[string]any{"request_id": "q-yes", "yes": true},
+		map[string]any{"request_id": "q-text", "fill_in_text": "Ada"},
+		map[string]any{"request_id": "q-skipped"},
+	}, req.Body["responses"])
+}
+
+func TestCancelQuestionsNamesTheBatch(t *testing.T) {
+	ws, srv := openFake(t, map[string]http.HandlerFunc{
+		"POST /v1/workspaces/ws-1/questions/cancel": func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, map[string]any{"resolved": false})
+		},
+	})
+
+	resolved, err := ws.CancelQuestions(t.Context(), "batch-1")
+	require.NoError(t, err)
+	assert.False(t, resolved, "another client resolved the batch first")
+
+	assert.Equal(t, map[string]any{"batch_request_id": "batch-1"}, srv.last().Body)
+}
+
 func TestEventsDeliversDataPayloadsInOrderThenCloses(t *testing.T) {
 	trace, err := os.ReadFile(filepath.Join("..", "..", "testdata", "bash-permission.sse"))
 	require.NoError(t, err)

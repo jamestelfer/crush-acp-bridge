@@ -14,21 +14,23 @@ import (
 // updateView is the snapshot form of an Update: kind by name, empty fields
 // omitted.
 type updateView struct {
-	Kind          string         `json:"kind"`
-	SessionID     string         `json:"session_id,omitzero"`
-	MessageID     string         `json:"message_id,omitzero"`
-	Text          string         `json:"text,omitzero"`
-	ToolCallID    string         `json:"tool_call_id,omitzero"`
-	ToolName      string         `json:"tool_name,omitzero"`
-	RawInput      jsontext.Value `json:"raw_input,omitzero"`
-	Output        string         `json:"output,omitzero"`
-	IsError       bool           `json:"is_error,omitzero"`
-	PermissionID  string         `json:"permission_id,omitzero"`
-	Description   string         `json:"description,omitzero"`
-	RawPermission jsontext.Value `json:"raw_permission,omitzero"`
-	RawParams     jsontext.Value `json:"raw_params,omitzero"`
-	Metadata      jsontext.Value `json:"metadata,omitzero"`
-	StopReason    string         `json:"stop_reason,omitzero"`
+	Kind          string               `json:"kind"`
+	SessionID     string               `json:"session_id,omitzero"`
+	MessageID     string               `json:"message_id,omitzero"`
+	Text          string               `json:"text,omitzero"`
+	ToolCallID    string               `json:"tool_call_id,omitzero"`
+	ToolName      string               `json:"tool_name,omitzero"`
+	RawInput      jsontext.Value       `json:"raw_input,omitzero"`
+	Output        string               `json:"output,omitzero"`
+	IsError       bool                 `json:"is_error,omitzero"`
+	PermissionID  string               `json:"permission_id,omitzero"`
+	Description   string               `json:"description,omitzero"`
+	RawPermission jsontext.Value       `json:"raw_permission,omitzero"`
+	RawParams     jsontext.Value       `json:"raw_params,omitzero"`
+	Metadata      jsontext.Value       `json:"metadata,omitzero"`
+	StopReason    string               `json:"stop_reason,omitzero"`
+	BatchID       string               `json:"batch_id,omitzero"`
+	Questions     []translate.Question `json:"questions,omitzero"`
 }
 
 // streamOf replays a recorded trace and returns every update as snapshot JSON.
@@ -47,7 +49,7 @@ func streamOf(t *testing.T, name string) []byte {
 				ToolCallID: u.ToolCallID, ToolName: u.ToolName, RawInput: u.RawInput,
 				Output: u.Output, IsError: u.IsError, PermissionID: u.PermissionID,
 				Description: u.Description, RawPermission: u.RawPermission, RawParams: u.RawParams, Metadata: u.Metadata,
-				StopReason: u.StopReason,
+				StopReason: u.StopReason, BatchID: u.BatchID, Questions: u.Questions,
 			})
 		}
 	}

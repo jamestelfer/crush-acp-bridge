@@ -44,13 +44,15 @@ Before `Serve` returns, the bridge deletes the sessions it created and the edito
 
 1. `Workspace.Events` opens `GET /v1/workspaces/{id}/events` and sends each SSE `data:` line on a channel.
 2. One `follow` goroutine per directory reads the channel and feeds each event to the directory's `translate.Translator`.
-3. The translator reads the envelope `{type, payload: {payload}}` and handles `message` and `permission_request`. Crush publishes whole-message snapshots, so the translator remembers what it emitted per message and returns only new text, new reasoning, newly seen tool calls, tool input once complete, and tool results.
+3. The translator reads the envelope `{type, payload: {payload}}` and handles `message`, `permission_request` and `question_batch_request`. Crush publishes whole-message snapshots, so the translator remembers what it emitted per message and returns only new text, new reasoning, newly seen tool calls, tool input once complete, and tool results.
 4. A turn ends on an assistant `finish` part whose reason ends the turn: `end_turn`, `canceled` (ACP `cancelled`), `max_tokens`, or `error`, `content_filter` and `unknown` (ACP `error`). `run_complete` is not used: on cancel it arrives before the final message update.
-5. `forward` turns each update into an ACP `session/update`: user, agent and thought chunks, tool call start and updates (kind, title, locations, raw input, diffs, output), and permission requests.
+5. `forward` turns each update into an ACP `session/update`: user, agent and thought chunks, tool call start and updates (kind, title, locations, raw input, diffs, output), permission requests and questions.
 
 The bridge drops the echo of the editor's own prompt and forwards user messages typed in other Crush clients.
 
 A permission request runs in its own goroutine, so a slow answer does not stall the stream. For edit tools, a tool call update carrying the diff goes first; see [ADR 7](adr/0007-diff-content-sources.md). Allow once, allow for the session and reject map to Crush's `allow`, `allow_session` and `deny`; any other outcome, including an error, denies.
+
+A question batch also runs in its own goroutine, after a tool call update that lists its questions. The bridge asks each question in turn and answers the batch once all are answered; a dismissed question cancels it. See [ADR 11](adr/0011-questions-as-permission-requests.md).
 
 A prompt waits on its session's `turn` channel for the end the translator reports. On `session/cancel`, the bridge asks Crush to cancel and waits up to 2 seconds for the cancelled finish, then answers `cancelled`.
 
@@ -65,4 +67,4 @@ When a stream ends while the bridge runs and the server still serves the workspa
 - The directory's translator lives for the bridge's lifetime, across reconnects and loads.
 - A session's `active` flag is set while a prompt waits, so turn ends from other clients do not complete a later prompt. The `turn` channel holds at most one pending end.
 - The `follow` goroutine owns the event channel, re-subscribes, and replaces the backend on reconnect.
-- `Agent.asking` holds the IDs of permission requests the editor is answering, so a re-delivered request is not asked twice.
+- `Agent.asking` holds the IDs of permission requests the editor is answering, and of question batches asked, so a re-delivered request or batch is not asked twice. A batch stays recorded once its outcome reaches Crush.

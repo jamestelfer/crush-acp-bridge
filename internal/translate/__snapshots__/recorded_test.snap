@@ -100,6 +100,224 @@
 ]
 ---
 
+[TestUpdateStreamForQuestionTurn - 1]
+[
+ {
+  "kind": "user_chunk",
+  "message_id": "466ef854-e9e9-4d5e-883a-e46e14b0fac8",
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "text": "Use the question tool once, with a single batch of three questions: a single_choice question asking whether a greeting should be in English or French, a yes_no question asking whether to end it with an exclamation mark, and a free_text question asking whose name to greet. Do not create or edit any file. After I answer, reply with one sentence that states my three answers."
+ },
+ {
+  "kind": "thought_chunk",
+  "message_id": "0126980a-e44e-47c9-904f-266aed7fc7f0",
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "text": "**Answering User Request**\n\nI am focusing on fulfilling your specific request to utilize the `question` tool. My current processing involves formulating the precise set of three questions, starting with a single-choice option for language, as you've outlined.\n\n"
+ },
+ {
+  "kind": "thought_chunk",
+  "message_id": "0126980a-e44e-47c9-904f-266aed7fc7f0",
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "text": "**Developing Greeting Logic**\n\nI'm refining the structure for the `question` tool call. My focus is on assembling the `questions` array, specifically defining the parameters for the `single_choice` language selection and the `yes_no` punctuation query. I'm also considering the prompt for the free-text name input.\n\n"
+ },
+ {
+  "kind": "tool_call_started",
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "tool_call_id": "call_5373993239042528834",
+  "tool_name": "question"
+ },
+ {
+  "kind": "tool_call_input",
+  "raw_input": {
+   "confirm_description": "We'll generate the appropriate greeting based on these preferences.",
+   "confirm_title": "Ready to greet?",
+   "questions": [
+    {
+     "choices": [
+      {
+       "id": "en",
+       "label": "English"
+      },
+      {
+       "id": "fr",
+       "label": "French"
+      }
+     ],
+     "description": "Select the language you want to use for the greeting.",
+     "label": "Language",
+     "question": "Should the greeting be in English or French?",
+     "type": "single_choice"
+    },
+    {
+     "description": "Adds an enthusiastic exclamation mark at the end of the greeting.",
+     "label": "Exclamation",
+     "question": "Should we end it with an exclamation mark?",
+     "type": "yes_no"
+    },
+    {
+     "description": "Provide the name of the person to be greeted.",
+     "label": "Name",
+     "question": "Whose name should be greeted?",
+     "type": "free_text"
+    }
+   ]
+  },
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "tool_call_id": "call_5373993239042528834",
+  "tool_name": "question"
+ },
+ {
+  "batch_id": "ccacbfd4-687f-4a4b-a1fa-f1f46d38bac2",
+  "kind": "question_asked",
+  "questions": [
+   {
+    "choices": [
+     {
+      "id": "en",
+      "label": "English"
+     },
+     {
+      "id": "fr",
+      "label": "French"
+     }
+    ],
+    "description": "Select the language you want to use for the greeting.",
+    "id": "655fcadf-67d9-43c3-a9aa-dfa415d0d710",
+    "label": "Language",
+    "question": "Should the greeting be in English or French?",
+    "type": "single_choice"
+   },
+   {
+    "description": "Adds an enthusiastic exclamation mark at the end of the greeting.",
+    "id": "d075d1c2-760e-41f3-bded-5413c53b1100",
+    "label": "Exclamation",
+    "question": "Should we end it with an exclamation mark?",
+    "type": "yes_no"
+   },
+   {
+    "description": "Provide the name of the person to be greeted.",
+    "id": "1af14935-2e23-4757-a924-026a19dbdab6",
+    "label": "Name",
+    "question": "Whose name should be greeted?",
+    "type": "free_text"
+   }
+  ],
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "tool_call_id": "call_5373993239042528834"
+ },
+ {
+  "kind": "tool_call_finished",
+  "metadata": {
+   "answers": [
+    {
+     "question_id": "655fcadf-67d9-43c3-a9aa-dfa415d0d710",
+     "selected_ids": [
+      "en"
+     ]
+    },
+    {
+     "question_id": "d075d1c2-760e-41f3-bded-5413c53b1100",
+     "yes": true
+    },
+    {
+     "fill_in_text": "Recorded answer",
+     "question_id": "1af14935-2e23-4757-a924-026a19dbdab6"
+    }
+   ],
+   "questions": [
+    {
+     "choices": [
+      {
+       "id": "en",
+       "label": "English"
+      },
+      {
+       "id": "fr",
+       "label": "French"
+      }
+     ],
+     "description": "Select the language you want to use for the greeting.",
+     "id": "655fcadf-67d9-43c3-a9aa-dfa415d0d710",
+     "label": "Language",
+     "question": "Should the greeting be in English or French?",
+     "type": "single_choice"
+    },
+    {
+     "description": "Adds an enthusiastic exclamation mark at the end of the greeting.",
+     "id": "d075d1c2-760e-41f3-bded-5413c53b1100",
+     "label": "Exclamation",
+     "question": "Should we end it with an exclamation mark?",
+     "type": "yes_no"
+    },
+    {
+     "description": "Provide the name of the person to be greeted.",
+     "id": "1af14935-2e23-4757-a924-026a19dbdab6",
+     "label": "Name",
+     "question": "Whose name should be greeted?",
+     "type": "free_text"
+    }
+   ]
+  },
+  "output": "Q1: Should the greeting be in English or French?\nUser selected: [\"en\"]\n\nQ2: Should we end it with an exclamation mark?\nUser answered: yes\n\nQ3: Whose name should be greeted?\nUser provided: Recorded answer",
+  "raw_input": {
+   "confirm_description": "We'll generate the appropriate greeting based on these preferences.",
+   "confirm_title": "Ready to greet?",
+   "questions": [
+    {
+     "choices": [
+      {
+       "id": "en",
+       "label": "English"
+      },
+      {
+       "id": "fr",
+       "label": "French"
+      }
+     ],
+     "description": "Select the language you want to use for the greeting.",
+     "label": "Language",
+     "question": "Should the greeting be in English or French?",
+     "type": "single_choice"
+    },
+    {
+     "description": "Adds an enthusiastic exclamation mark at the end of the greeting.",
+     "label": "Exclamation",
+     "question": "Should we end it with an exclamation mark?",
+     "type": "yes_no"
+    },
+    {
+     "description": "Provide the name of the person to be greeted.",
+     "label": "Name",
+     "question": "Whose name should be greeted?",
+     "type": "free_text"
+    }
+   ]
+  },
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "tool_call_id": "call_5373993239042528834",
+  "tool_name": "question"
+ },
+ {
+  "kind": "message_chunk",
+  "message_id": "135c6b1f-431c-48bc-a809-9c5aad5d63a8",
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "text": "You selected English for the greeting, opted to include an exclamation mark,"
+ },
+ {
+  "kind": "message_chunk",
+  "message_id": "135c6b1f-431c-48bc-a809-9c5aad5d63a8",
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "text": " and specified \"Recorded answer\" as the name to greet."
+ },
+ {
+  "kind": "turn_ended",
+  "message_id": "135c6b1f-431c-48bc-a809-9c5aad5d63a8",
+  "session_id": "a8cd137c-4786-4409-b86d-c64711797633",
+  "stop_reason": "end_turn"
+ }
+]
+---
+
 [TestUpdateStreamForUnixRecordedTurns - 1]
 [
  {

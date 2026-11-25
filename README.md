@@ -183,7 +183,8 @@ provider that runs the bridge in shared mode, then run `paseo reload`:
 Paseo starts one bridge per agent. The bridges share one Crush server, so several agents can work in
 the same directory. Each agent works in its own directory, including a git worktree. Paseo lists Crush's
 models and modes, and asks for a mode when it creates a Crush agent. Permission requests appear in Paseo
-with the command to be run, or the diff of a file edit.
+with the command to be run, or the diff of a file edit. Crush's questions appear as permission requests
+with one option per answer.
 
 Paseo caches each provider's model list. Run `paseo provider diagnostic crush` to refresh it after
 changing Crush's providers.
@@ -208,6 +209,11 @@ Supported:
   shows each replaced fragment. A write Crush does not ask about, such as one already allowed for the
   session, records only a unified diff, which is shown as text.
 - Permission requests: allow once, allow for the session, and reject.
+- Questions from Crush's `question` tool, asked one at a time as permission requests: Yes and No, or one
+  option per choice. A free-text or multi-choice question uses a form when the editor offers form
+  elicitation. Elsewhere a free-text question can only be skipped, and a multi-choice question takes one
+  choice. Dismissing a question cancels the batch and ends Crush's turn. An editor that approves
+  permission requests without asking answers each question with Yes or its first choice.
 - `session/cancel`. The prompt returns the `cancelled` stop reason.
 - Image and embedded-resource prompts, sent to Crush as attachments. Text resources are inlined into the
   prompt; an image is refused when Crush's current model cannot see it. Resource links appear in the prompt
@@ -220,7 +226,6 @@ Supported:
 Not supported:
 
 - Editor file system and terminal delegation. The agent reads files from disk, so unsaved buffers are invisible.
-- Crush question prompts.
 - Audio prompts, and embedded binary resources other than images and text.
 - `authenticate`, `logout`, `session/close`, `session/delete` and the unstable `session/set_model`. The bridge
   advertises none of them, and offers models as a config option instead.

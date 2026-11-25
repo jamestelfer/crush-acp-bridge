@@ -13,6 +13,10 @@ Crush clients do, subscribes to the workspace's events, creates a session
 titled "trace", and sends each PROMPT in turn, waiting for the assistant's
 finish. Every line of the workspace's event stream is written to OUT. The
 session ID is printed on stdout; progress goes to stderr.
+
+Questions from Crush's question tool are answered too: yes to a yes_no
+question, the first choice of a single_choice or multi_choice question, and
+FREE_TEXT_ANSWER to a free_text question.
 """
 
 import http.client
@@ -27,6 +31,7 @@ import uuid
 
 TIMEOUT = 600
 TURN_END_REASONS = ("end_turn", "canceled", "error", "max_tokens")
+FREE_TEXT_ANSWER = "Recorded answer"
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -93,12 +98,31 @@ def follow(base, ws, client, action, out, turn_done, done):
             print("permission", p["tool_name"], file=sys.stderr)
             call(base, "POST", f"/workspaces/{ws}/permissions/grant",
                  {"action": action, "permission": p})
+        elif ev["type"] == "question_batch_request":
+            q = ev["payload"]["payload"]
+            print("questions", len(q["questions"]), file=sys.stderr)
+            call(base, "POST", f"/workspaces/{ws}/questions/answer",
+                 {"batch_request_id": q["id"],
+                  "responses": [answer(item) for item in q["questions"]]})
         elif ev["type"] == "message":
             m = ev["payload"]["payload"]
             for part in m.get("parts") or []:
                 if (part["type"] == "finish" and m["role"] == "assistant"
                         and part["data"].get("reason") in TURN_END_REASONS):
                     turn_done.set()
+
+
+def answer(question):
+    """The scripted response to one question of a batch."""
+    r = {"request_id": question["id"]}
+    kind = question["type"]
+    if kind == "yes_no":
+        r["yes"] = True
+    elif kind in ("single_choice", "multi_choice"):
+        r["selected_ids"] = [question["choices"][0]["id"]]
+    else:
+        r["fill_in_text"] = FREE_TEXT_ANSWER
+    return r
 
 
 def main(argv):
