@@ -34,6 +34,10 @@ type Hooks struct {
 	OnOpen func(path string)
 	// OnDelete is called with the ID of each session the client deletes.
 	OnDelete func(sessionID string)
+	// OnSubscribe is called with the client ID of each event-stream
+	// subscription. The stream ends when the returned channel closes, as a
+	// server that drops a slow client ends it; a nil channel never closes.
+	OnSubscribe func(clientID string) <-chan struct{}
 }
 
 // Handler returns an http.Handler for the fake server.
@@ -55,9 +59,16 @@ func Handler(hooks Hooks) http.Handler {
 		_, _ = w.Write([]byte(`{"id":"ws-1"}`))
 	})
 	mux.HandleFunc("GET /v1/workspaces/ws-1/events", func(w http.ResponseWriter, r *http.Request) {
+		var drop <-chan struct{}
+		if hooks.OnSubscribe != nil {
+			drop = hooks.OnSubscribe(r.URL.Query().Get("client_id"))
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.(http.Flusher).Flush()
-		<-r.Context().Done()
+		select {
+		case <-r.Context().Done():
+		case <-drop:
+		}
 	})
 	mux.HandleFunc("POST /v1/workspaces/ws-1/sessions", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"id":"sess-1"}`))

@@ -11,8 +11,9 @@ Each record states one decision, its context and its consequences. Records are n
 | [0005](0005-session-close-not-advertised.md) | Do not advertise `session/close` | Accepted |
 | [0006](0006-session-load-and-list.md) | Session load, resume and list semantics | Accepted |
 | [0007](0007-diff-content-sources.md) | Diff content sources for edit tools | Accepted |
-| [0008](0008-turn-failure-on-event-stream-loss.md) | Fail the turn when the event stream drops | Accepted |
+| [0008](0008-turn-failure-on-event-stream-loss.md) | Fail the turn when the event stream drops | Superseded by [0010](0010-resubscribe-on-event-stream-loss.md) |
 | [0009](0009-delete-empty-sessions-on-exit.md) | Delete empty sessions when the bridge exits | Accepted |
+| [0010](0010-resubscribe-on-event-stream-loss.md) | Re-subscribe when the event stream drops | Accepted |
 
 Template:
 

@@ -250,3 +250,40 @@ func TestPingFailsWhenNothingIsListening(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+func TestEventsForAWorkspaceTheServerForgotReturnsErrNotFound(t *testing.T) {
+	ws, _ := openFake(t, map[string]http.HandlerFunc{
+		"GET /v1/workspaces/ws-1/events": http.NotFound,
+	})
+
+	_, err := ws.Events(t.Context())
+
+	require.ErrorIs(t, err, crush.ErrNotFound)
+}
+
+func TestEventsResubscribesWithTheSameClientID(t *testing.T) {
+	ws, srv := openFake(t, map[string]http.HandlerFunc{
+		"GET /v1/workspaces/ws-1/events": func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream") // ends at once, as a dropped stream does
+		},
+	})
+
+	first, err := ws.Events(t.Context())
+	require.NoError(t, err)
+	for range first {
+	}
+	opened := srv.last().Query["client_id"]
+	_, err = ws.Events(t.Context())
+	require.NoError(t, err)
+
+	require.Equal(t, opened, srv.last().Query["client_id"])
+}
+
+func TestWorkspacePingChecksItsServer(t *testing.T) {
+	ws, srv := openFake(t, map[string]http.HandlerFunc{
+		"GET /v1/health": func(http.ResponseWriter, *http.Request) {},
+	})
+
+	require.NoError(t, ws.Ping(t.Context()))
+	require.Equal(t, "/v1/health", srv.last().Path)
+}

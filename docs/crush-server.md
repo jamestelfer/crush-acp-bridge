@@ -46,7 +46,7 @@ The outer `type` names the stream; the inner `type` is `created` or `updated`; t
 - `run_complete` arrives before the final message update when a turn is cancelled, so it does not mark the end of a turn.
 - `permission_request` payloads carry `id`, `session_id`, `tool_call_id`, `tool_name`, `description`, `action` and `params`. For `edit`, `multiedit` and `write`, `params` holds `file_path`, `old_content` and `new_content`.
 - Tool result metadata of `edit` and `multiedit` holds `old_content` and `new_content`. A `write` result holds only a unified `diff`. Crush omits empty content, so a missing `old_content` means a new or empty file.
-- A server that drops a slow client ends its stream.
+- A server that drops a slow client ends its stream. Events published while a client is unsubscribed are lost. A client may subscribe again with the same `client_id`; a server that does not serve the workspace answers `404`. Reporting the current session again re-delivers pending permission requests.
 
 ## Sessions
 

@@ -1,6 +1,6 @@
 # 8. Fail the turn when the event stream drops
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR 10](0010-resubscribe-on-event-stream-loss.md)
 - **Date**: 2026-11-24
 
 ## Context
@@ -23,4 +23,4 @@ When a directory's event stream ends while the bridge runs:
 
 - A turn fails even when the server is still running and finishes the turn. The editor must send the prompt again.
 - Each reconnect leaves a stale client registration on the server.
-- This is expected to change: [#4](https://github.com/jamestelfer/crush-acp-bridge/issues/4) keeps the turn alive and re-subscribes with the existing client ID when the server is still up.
+- [ADR 10](0010-resubscribe-on-event-stream-loss.md) keeps the turn alive and re-subscribes with the existing client ID when the server is still up ([#4](https://github.com/jamestelfer/crush-acp-bridge/issues/4)). This path remains its fallback.

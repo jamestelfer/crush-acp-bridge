@@ -4,10 +4,12 @@ package bridge
 import (
 	"context"
 	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,6 +31,7 @@ type Backend interface {
 	Cancel(ctx context.Context, sessionID string) error
 	Grant(ctx context.Context, permission jsontext.Value, action crush.Action) error
 	Events(ctx context.Context) (<-chan []byte, error)
+	Ping(ctx context.Context) error
 	Models(ctx context.Context) (crush.Models, error)
 	SetModel(ctx context.Context, m crush.ModelRef) error
 	SetMainAgent(ctx context.Context, agentID string) error
@@ -40,7 +43,8 @@ var _ Backend = (*crush.Workspace)(nil)
 
 // Opener returns the Backend for the project in cwd. The bridge calls it once
 // per directory and reuses the result, and again to reconnect after the
-// directory's event stream ends.
+// directory's event stream ends and the server no longer serves the
+// workspace.
 type Opener func(ctx context.Context, cwd string) (Backend, error)
 
 // Option configures Serve.
@@ -61,6 +65,7 @@ func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts .
 		reconnects: map[string]chan struct{}{},
 		modes:      map[string]acp.SessionModeId{},
 		sessions:   map[string]*session{},
+		asking:     map[string]bool{},
 		serveCtx:   ctx,
 		log:        slog.New(slog.DiscardHandler),
 	}
@@ -119,6 +124,7 @@ type Agent struct {
 	reconnects map[string]chan struct{}     // closed when a directory reconnects
 	modes      map[string]acp.SessionModeId // Crush's active agent, by directory
 	sessions   map[string]*session
+	asking     map[string]bool // permission requests the editor is answering, by ID
 
 	// closing is set once Serve starts deleting empty sessions. From then on
 	// no prompt starts and no session is created, so none is deleted after
@@ -204,6 +210,14 @@ func (s *session) takeSent(text string) bool {
 	}
 	s.sent = ""
 	return true
+}
+
+// pendingSent returns the text of the editor's prompt while Crush has not yet
+// echoed it back.
+func (s *session) pendingSent() string {
+	s.sentMu.Lock()
+	defer s.sentMu.Unlock()
+	return s.sent
 }
 
 func (s *session) setSent(text string) {
@@ -298,21 +312,22 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 		return acp.PromptResponse{}, err
 	}
 
-	s.active.Store(true)
-	defer s.active.Store(false)
-	select { // discard a signal left over from a turn that ended after its prompt gave up
-	case <-s.turn:
-	default:
-	}
-
 	var text strings.Builder
 	for _, b := range req.Prompt {
 		if b.Text != nil {
 			text.WriteString(b.Text.Text)
 		}
 	}
+	// sent is set before active, so a catch-up that sees the turn active
+	// also sees which prompt it waits for.
 	s.setSent(text.String())
 	defer s.setSent("")
+	s.active.Store(true)
+	defer s.active.Store(false)
+	select { // discard a signal left over from a turn that ended after its prompt gave up
+	case <-s.turn:
+	default:
+	}
 	began := time.Now()
 	a.log.Info("prompt started", "session_id", string(req.SessionId))
 	if err := a.backend(s.cwd).Prompt(ctx, string(req.SessionId), text.String()); err != nil {
@@ -469,12 +484,17 @@ func (a *Agent) connect(ctx context.Context, cwd string) (Backend, <-chan []byte
 }
 
 // follow translates Crush events and forwards them in order to the editor.
-// When the stream ends it fails the directory's turns in flight and
-// reconnects. The directory's translator spans reconnects, so text the editor
-// already has is not sent again when Crush resends a message.
+// When the stream ends it subscribes again as the same client while the
+// server still serves the workspace, and the directory's turns carry on.
+// Otherwise it fails the directory's turns in flight and reconnects. The
+// directory's translator spans both, so text the editor already has is not
+// sent again when Crush resends a message.
 func (a *Agent) follow(events <-chan []byte, cwd string, w *workspace) {
+	delay := reconnectMin
 	for {
+		received := false
 		for data := range events {
+			received = true
 			w.trMu.Lock()
 			updates, err := w.tr.Feed(data)
 			if err != nil {
@@ -490,14 +510,148 @@ func (a *Agent) follow(events <-chan []byte, cwd string, w *workspace) {
 			return
 		}
 		a.log.Warn("crush event stream closed", "cwd", cwd)
+
+		// Prompts sent from here on wait until the stream is back, whether by
+		// resubscribing or by reconnecting, rather than reach a server that
+		// may be gone.
 		a.mu.Lock()
-		a.reconnects[cwd] = make(chan struct{})
+		if _, ok := a.reconnects[cwd]; !ok {
+			a.reconnects[cwd] = make(chan struct{})
+		}
 		a.mu.Unlock()
+
+		// A stream that ends again before it delivers anything backs off, so
+		// a server that accepts and drops at once is not hammered.
+		if received {
+			delay = reconnectMin
+		} else {
+			delay = min(2*delay, reconnectMax)
+		}
+		select {
+		case <-a.serveCtx.Done():
+			return
+		case <-time.After(delay):
+		}
+		if next := a.resubscribe(cwd, w); next != nil {
+			a.mu.Lock()
+			if done, ok := a.reconnects[cwd]; ok {
+				close(done)
+				delete(a.reconnects, cwd)
+			}
+			a.mu.Unlock()
+			events = next
+			continue
+		}
+
 		a.failTurns(cwd)
 		if events = a.reconnect(cwd); events == nil {
 			return
 		}
 	}
+}
+
+// resubscribeWait bounds the health check and catch-up of a resubscribe.
+const resubscribeWait = 5 * time.Second
+
+// resubscribe subscribes to cwd's events again with the current backend, as
+// the same client, when the server still answers and still serves the
+// workspace. It reports the directory's sessions again and catches up on the
+// turns in flight. It returns nil when the server is gone or has forgotten
+// the workspace, such as after a restart.
+func (a *Agent) resubscribe(cwd string, w *workspace) <-chan []byte {
+	b := a.backend(cwd)
+	ctx, cancel := context.WithTimeout(a.serveCtx, resubscribeWait)
+	defer cancel()
+	if err := b.Ping(ctx); err != nil {
+		a.log.Warn("crush unreachable after the event stream closed", "cwd", cwd, "error", err)
+		return nil
+	}
+	events, err := b.Events(a.serveCtx)
+	if err != nil {
+		a.log.Warn("crush event stream not resumed", "cwd", cwd, "error", err)
+		return nil
+	}
+	a.reportSessions(ctx, b, cwd)
+	a.catchUp(ctx, b, cwd, w)
+	a.log.Info("crush event stream resumed", "cwd", cwd)
+	return events
+}
+
+// catchUp feeds the stored messages of each turn in flight in cwd through the
+// directory's translator. Events sent while the stream was down are lost, so
+// this delivers what the editor missed, and a turn that ended in the gap ends.
+func (a *Agent) catchUp(ctx context.Context, b Backend, cwd string, w *workspace) {
+	for id, s := range a.sessionsIn(cwd) {
+		if !s.active.Load() {
+			continue
+		}
+		messages, err := b.Messages(ctx, id)
+		if err != nil {
+			a.log.Warn("turn not caught up after the event stream closed", "session_id", id, "error", err)
+			continue
+		}
+		turn := currentTurn(messages)
+		if pending := s.pendingSent(); pending != "" && userText(turn) != pending {
+			// Crush has not stored the editor's prompt yet, so the last user
+			// message starts an earlier turn. The live stream delivers this one.
+			continue
+		}
+		w.trMu.Lock()
+		for _, raw := range turn {
+			updates, err := w.tr.FeedMessage(raw)
+			if err != nil {
+				a.log.Warn("stored message not translated", "session_id", id, "error", err)
+				continue
+			}
+			for i := range updates {
+				a.forward(&updates[i])
+			}
+		}
+		w.trMu.Unlock()
+	}
+}
+
+// currentTurn returns the messages from the last user message on: the turn in
+// flight. Earlier turns may predate the bridge, so their text and finish must
+// not reach the editor.
+func currentTurn(messages []jsontext.Value) []jsontext.Value {
+	for i, raw := range slices.Backward(messages) {
+		var m struct {
+			Role string `json:"role"`
+		}
+		if json.Unmarshal(raw, &m) == nil && m.Role == "user" {
+			return messages[i:]
+		}
+	}
+	return messages
+}
+
+// userText returns the visible text of the user message that starts turn, or
+// "" when turn does not start with one.
+func userText(turn []jsontext.Value) string {
+	if len(turn) == 0 {
+		return ""
+	}
+	var m struct {
+		Role  string `json:"role"`
+		Parts []struct {
+			Type string `json:"type"`
+			Data struct {
+				Text   string `json:"text"`
+				Hidden bool   `json:"hidden"`
+			} `json:"data"`
+		} `json:"parts"`
+	}
+	if json.Unmarshal(turn[0], &m) != nil || m.Role != "user" {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range m.Parts {
+		if p.Type == "text" && !p.Data.Hidden {
+			b.WriteString(p.Data.Text)
+		}
+	}
+	return b.String()
 }
 
 // failTurns ends every turn waiting in cwd with errStreamLost.
@@ -574,14 +728,20 @@ func (a *Agent) reconnect(cwd string) <-chan []byte {
 			delete(a.reconnects, cwd)
 		}
 		a.mu.Unlock()
-		for id := range a.sessionsIn(cwd) {
-			// Permission prompts reach only the client viewing the session.
-			if err := b.SetCurrentSession(a.serveCtx, id); err != nil {
-				a.log.Warn("session not reported after reconnect", "session_id", id, "error", err)
-			}
-		}
+		a.reportSessions(a.serveCtx, b, cwd)
 		a.log.Info("crush reconnected", "cwd", cwd, "attempt", attempt)
 		return events
+	}
+}
+
+// reportSessions tells Crush again which sessions this client views in cwd.
+// Permission prompts reach only the client viewing the session, and Crush
+// re-delivers those still pending.
+func (a *Agent) reportSessions(ctx context.Context, b Backend, cwd string) {
+	for id := range a.sessionsIn(cwd) {
+		if err := b.SetCurrentSession(ctx, id); err != nil {
+			a.log.Warn("session not reported after reconnect", "session_id", id, "error", err)
+		}
 	}
 }
 
@@ -643,17 +803,48 @@ func (a *Agent) forward(u *translate.Update) {
 			acp.WithUpdateContent(content),
 		))
 	case translate.PermissionRequested:
-		diffs := permissionDiffs(u.ToolName, s.cwd, u.RawParams)
-		if diffs != nil {
-			// Paseo shows the tool call as it already holds it, not the copy
-			// in the request, so the diff goes to the tool call first.
-			a.send(sid, acp.UpdateToolCall(acp.ToolCallId(u.ToolCallID), acp.WithUpdateContent(diffs)))
-		}
-		// The editor may take minutes to answer; do not stall the event loop.
-		go a.askPermission(a.backend(s.cwd), *u, diffs)
+		a.requestPermission(s, u)
 	case translate.TurnEnded:
 		s.end(turnEnd{reason: acp.StopReason(u.StopReason)})
 	}
+}
+
+// requestPermission starts asking the editor about a Crush permission
+// request, unless it already is.
+func (a *Agent) requestPermission(s *session, u *translate.Update) {
+	if !a.startAsking(u.PermissionID) {
+		return // re-delivered after a resubscribe while the editor answers it
+	}
+	diffs := permissionDiffs(u.ToolName, s.cwd, u.RawParams)
+	if diffs != nil {
+		// Paseo shows the tool call as it already holds it, not the copy in
+		// the request, so the diff goes to the tool call first.
+		a.send(acp.SessionId(u.SessionID), acp.UpdateToolCall(acp.ToolCallId(u.ToolCallID), acp.WithUpdateContent(diffs)))
+	}
+	// The editor may take minutes to answer; do not stall the event loop.
+	go a.askPermission(a.backend(s.cwd), *u, diffs)
+}
+
+// startAsking records that the editor is being asked permission id. It
+// returns false when the editor is already answering it. A request without an
+// ID is always asked.
+func (a *Agent) startAsking(id string) bool {
+	if id == "" {
+		return true
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.asking[id] {
+		return false
+	}
+	a.asking[id] = true
+	return true
+}
+
+func (a *Agent) doneAsking(id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.asking, id)
 }
 
 // askPermission relays a Crush permission request to the editor and sends the
@@ -709,4 +900,5 @@ func (a *Agent) askPermission(backend Backend, u translate.Update, diffs []acp.T
 		a.log.Warn("permission grant failed",
 			"error", err, "action", string(action), "tool", u.ToolName, "session_id", u.SessionID)
 	}
+	a.doneAsking(u.PermissionID)
 }

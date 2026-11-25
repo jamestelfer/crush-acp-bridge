@@ -108,7 +108,7 @@ func TestReconnectRestoresTheModeOnTheServer(t *testing.T) {
 	sid := openSession(t, conn).SessionId
 	require.NoError(t, setMode(t, conn, sid, "plan"))
 
-	backend.drop() // a restarted server starts on coder
+	backend.restart() // a restarted server starts on coder
 
 	require.Eventually(t, func() bool {
 		return fmt.Sprint(backend.agentsSet()) == "[plan plan]"
