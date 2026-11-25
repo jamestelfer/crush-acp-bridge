@@ -74,6 +74,7 @@ func (a *Agent) sessionConfig(ctx context.Context, backend Backend, sessionID st
 		a.log.Warn("crush models not listed", "session_id", sessionID, "error", err)
 		return nil
 	}
+	a.warnUnusableModel(sessionID, models)
 	return configOptions(models)
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jamestelfer/crush-acp-bridge/internal/translate"
@@ -379,4 +380,44 @@ func TestQuestionToolCallFinishesWithTheAnswers(t *testing.T) {
 	require.Len(t, finished, 1)
 	require.Equal(t, "question", finished[0].ToolName)
 	require.Contains(t, finished[0].Output, "User provided: Recorded answer")
+}
+
+func TestFailedTurnCarriesCrushsErrorAndProvider(t *testing.T) {
+	// Crush 0.102.0 ends a turn the provider refused with an error finish
+	// whose message is a title and whose details explain it.
+	event := `{"type":"message","payload":{"type":"updated","payload":{"id":"m-1","role":"assistant",` +
+		`"session_id":"s-1","provider":"vertexai","model":"gemini-4-hydrogen","parts":[{"type":"finish","data":` +
+		`{"reason":"error","time":1,"message":"Provider Error","details":"credentials: could not find default credentials"}}]}}}`
+
+	updates, err := translate.New().Feed([]byte(event))
+	require.NoError(t, err)
+
+	require.Equal(t, []translate.Update{{
+		Kind: translate.TurnEnded, SessionID: "s-1", MessageID: "m-1", StopReason: "error",
+		Provider: "vertexai", ErrorTitle: "Provider Error", ErrorDetail: "credentials: could not find default credentials",
+	}}, updates)
+}
+
+func TestFailedTurnErrorDropsTerminalStyling(t *testing.T) {
+	// Crush 0.102.0 renders the link in its Copilot "model not enabled"
+	// details with lipgloss: an OSC 8 hyperlink around underlined, coloured text.
+	link := "\x1b]8;id=copilot;https://github.com/settings/copilot/features\x1b\\" +
+		"\x1b[4;38;2;0;255;178mhttps://github.com/settings/copilot/features\x1b[0m" +
+		"\x1b]8;;\x1b\\"
+	finish, err := json.Marshal(map[string]any{"type": "message", "payload": map[string]any{"type": "updated", "payload": map[string]any{
+		"id": "m-1", "role": "assistant", "session_id": "s-1", "provider": "copilot",
+		"parts": []any{map[string]any{"type": "finish", "data": map[string]any{
+			"reason": "error", "time": 1, "message": "Copilot model not enabled",
+			"details": `"GPT-9" is not enabled in Copilot. Go to the following page to enable it. ` + link,
+		}}},
+	}}})
+	require.NoError(t, err)
+
+	updates, err := translate.New().Feed(finish)
+	require.NoError(t, err)
+
+	require.Len(t, updates, 1)
+	assert.Equal(t, "Copilot model not enabled", updates[0].ErrorTitle)
+	assert.Equal(t, `"GPT-9" is not enabled in Copilot. Go to the following page to enable it. `+
+		"https://github.com/settings/copilot/features", updates[0].ErrorDetail)
 }

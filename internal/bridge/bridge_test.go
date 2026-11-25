@@ -115,6 +115,7 @@ type fakeCrush struct {
 	gone        atomic.Bool  // nothing answers: Ping fails
 	subscribes  atomic.Int32 // Events calls that succeeded
 
+	promptErr    error        // returned by Prompt when set, as Crush refusing the prompt
 	messageReads atomic.Int32 // Messages calls
 	onPing       func()       // called by Ping before it answers, when set
 	beforePrompt func()       // called by Prompt before Crush stores the prompt, when set
@@ -306,6 +307,9 @@ func (f *fakeCrush) currentSessions() []string {
 func (f *fakeCrush) Prompt(_ context.Context, _ string, p crush.Prompt) error {
 	if f.down.Load() {
 		return errors.New("dial unix crush.sock: connect: connection refused")
+	}
+	if f.promptErr != nil {
+		return f.promptErr
 	}
 	if f.beforePrompt != nil {
 		f.beforePrompt()

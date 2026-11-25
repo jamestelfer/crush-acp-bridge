@@ -345,8 +345,13 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	}
 	began := time.Now()
 	a.log.Info("prompt started", "session_id", string(req.SessionId))
-	if err := a.backend(s.cwd).Prompt(ctx, string(req.SessionId), p); err != nil {
-		a.log.Error("prompt rejected by crush", "session_id", string(req.SessionId), "error", err)
+	backend := a.backend(s.cwd)
+	if cause := backend.Prompt(ctx, string(req.SessionId), p); cause != nil {
+		err := cause
+		if errors.Is(cause, crush.ErrNoProvider) {
+			err = a.noProviderError(ctx, backend)
+		}
+		a.log.Error("prompt rejected by crush", "session_id", string(req.SessionId), "error", err, "cause", cause)
 		return acp.PromptResponse{}, err
 	}
 
@@ -354,6 +359,9 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	case end := <-s.turn:
 		if end.err != nil {
 			a.log.Error("prompt failed", "session_id", string(req.SessionId), "error", end.err, "duration", time.Since(began))
+			if reqErr, ok := errors.AsType[*acp.RequestError](end.err); ok {
+				return acp.PromptResponse{}, reqErr
+			}
 			return acp.PromptResponse{}, internalError(end.err.Error())
 		}
 		a.log.Info("prompt finished",
@@ -822,8 +830,17 @@ func (a *Agent) forward(u *translate.Update) {
 	case translate.QuestionAsked:
 		a.askQuestions(s, u)
 	case translate.TurnEnded:
-		s.end(turnEnd{reason: acp.StopReason(u.StopReason)})
+		s.end(turnEndOf(u))
 	}
+}
+
+// turnEndOf is how a TurnEnded update ends the turn. ACP has no error stop
+// reason, so a turn Crush ended with an account of its error fails with it.
+func turnEndOf(u *translate.Update) turnEnd {
+	if u.ErrorTitle != "" || u.ErrorDetail != "" {
+		return turnEnd{err: turnFailure(u.Provider, u.ErrorTitle, u.ErrorDetail)}
+	}
+	return turnEnd{reason: acp.StopReason(u.StopReason)}
 }
 
 // requestPermission starts asking the editor about a Crush permission

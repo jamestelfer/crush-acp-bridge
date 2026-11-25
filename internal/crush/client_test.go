@@ -352,3 +352,37 @@ func TestWorkspacePingChecksItsServer(t *testing.T) {
 	require.NoError(t, ws.Ping(t.Context()))
 	require.Equal(t, "/v1/health", srv.last().Path)
 }
+
+// crushError replies as Crush's server does to a failed request.
+func crushError(status int, message string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.MarshalWrite(w, map[string]string{"message": message})
+	}
+}
+
+func TestPromptWithoutAProviderReturnsErrNoProvider(t *testing.T) {
+	// Crush 0.102.0 builds no agent when no provider has credentials, and
+	// refuses every prompt with this error.
+	ws, _ := openFake(t, map[string]http.HandlerFunc{
+		"POST /v1/workspaces/ws-1/agent": crushError(http.StatusBadRequest, "agent coordinator not initialized"),
+	})
+
+	err := ws.Prompt(t.Context(), "sess-9", crush.Prompt{Text: "hello"})
+
+	require.ErrorIs(t, err, crush.ErrNoProvider)
+}
+
+func TestFailedRequestCarriesCrushsMessage(t *testing.T) {
+	ws, _ := openFake(t, map[string]http.HandlerFunc{
+		"POST /v1/workspaces/ws-1/agent": crushError(http.StatusInternalServerError, "session sess-9 not found"),
+	})
+
+	err := ws.Prompt(t.Context(), "sess-9", crush.Prompt{Text: "hello"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "500 Internal Server Error")
+	assert.Contains(t, err.Error(), "session sess-9 not found")
+	assert.NotErrorIs(t, err, crush.ErrNoProvider)
+}
