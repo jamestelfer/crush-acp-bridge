@@ -209,6 +209,9 @@ Supported:
   session, records only a unified diff, which is shown as text.
 - Permission requests: allow once, allow for the session, and reject.
 - `session/cancel`. The prompt returns the `cancelled` stop reason.
+- Image and embedded-resource prompts, sent to Crush as attachments. Text resources are inlined into the
+  prompt; an image is refused when Crush's current model cannot see it. Resource links appear in the prompt
+  text for Crush to read itself. A prompt needs text alongside its attachments.
 - User messages typed in other Crush clients, shown in the editor as they arrive.
 - Model selection (`session/set_config_option`) and the `coder` and `plan` modes (`session/set_mode`).
 - Reconnecting after the event stream drops.
@@ -218,7 +221,7 @@ Not supported:
 
 - Editor file system and terminal delegation. The agent reads files from disk, so unsaved buffers are invisible.
 - Crush question prompts.
-- Image and attachment prompts. Only text blocks are sent.
+- Audio prompts, and embedded binary resources other than images and text.
 - `authenticate`, `logout`, `session/close`, `session/delete` and the unstable `session/set_model`. The bridge
   advertises none of them, and offers models as a config option instead.
 

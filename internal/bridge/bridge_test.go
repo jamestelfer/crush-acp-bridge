@@ -89,26 +89,27 @@ type fakeCrush struct {
 	onCancel  trace // replayed when the session is cancelled
 	events    chan []byte
 
-	mu         sync.Mutex
-	prompts    []string
-	cancels    []string
-	grants     []grant
-	grantErr   error
-	models     crush.Models
-	modelsErr  error
-	setModels  []crush.ModelRef
-	agents     []string
-	agentErr   error
-	currents   []string
-	currentErr error // returned by SetCurrentSession when set
-	deleted    []string
-	deleteErr  error
-	stored     []crush.Session // returned by Sessions
-	history    trace           // the stored messages' source when set; else script
-	down       atomic.Bool
-	stale      atomic.Bool  // the server restarted and no longer knows the workspace
-	gone       atomic.Bool  // nothing answers: Ping fails
-	subscribes atomic.Int32 // Events calls that succeeded
+	mu          sync.Mutex
+	prompts     []string
+	attachments [][]crush.Attachment // each prompt's attachments, in order
+	cancels     []string
+	grants      []grant
+	grantErr    error
+	models      crush.Models
+	modelsErr   error
+	setModels   []crush.ModelRef
+	agents      []string
+	agentErr    error
+	currents    []string
+	currentErr  error // returned by SetCurrentSession when set
+	deleted     []string
+	deleteErr   error
+	stored      []crush.Session // returned by Sessions
+	history     trace           // the stored messages' source when set; else script
+	down        atomic.Bool
+	stale       atomic.Bool  // the server restarted and no longer knows the workspace
+	gone        atomic.Bool  // nothing answers: Ping fails
+	subscribes  atomic.Int32 // Events calls that succeeded
 
 	messageReads atomic.Int32 // Messages calls
 	onPing       func()       // called by Ping before it answers, when set
@@ -298,7 +299,7 @@ func (f *fakeCrush) currentSessions() []string {
 	return append([]string(nil), f.currents...)
 }
 
-func (f *fakeCrush) Prompt(_ context.Context, _ string, text string) error {
+func (f *fakeCrush) Prompt(_ context.Context, _ string, p crush.Prompt) error {
 	if f.down.Load() {
 		return errors.New("dial unix crush.sock: connect: connection refused")
 	}
@@ -308,7 +309,8 @@ func (f *fakeCrush) Prompt(_ context.Context, _ string, text string) error {
 	// Hold mu while sending so drop cannot close the stream mid-turn.
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.prompts = append(f.prompts, text)
+	f.prompts = append(f.prompts, p.Text)
+	f.attachments = append(f.attachments, p.Attachments)
 	for _, data := range f.script {
 		f.events <- data
 	}

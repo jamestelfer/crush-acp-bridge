@@ -19,7 +19,10 @@ var workspaceConfig = map[string]any{
 		"vertexai": map[string]any{
 			"id": "vertexai", "name": "Google Vertex AI", "api_key": "secret",
 			"models": []any{
-				map[string]any{"id": "gemini-4-hydrogen", "name": "Gemini 4 Hydrogen"},
+				map[string]any{
+					"id": "gemini-4-hydrogen", "name": "Gemini 4 Hydrogen",
+					"capabilities": map[string]any{"vision": true, "audio": true},
+				},
 				map[string]any{"id": "gemini-3-flash-preview", "name": "Gemini 3 Flash"},
 			},
 		},
@@ -62,7 +65,7 @@ func TestModelsListsConfiguredProvidersAndTheCurrentModel(t *testing.T) {
 	require.Equal(t, crush.ModelRef{Provider: "vertexai", Model: "gemini-4-hydrogen"}, models.Current)
 	require.Equal(t, []crush.Model{
 		{Provider: "anthropic", ProviderName: "Anthropic", ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6"},
-		{Provider: "vertexai", ProviderName: "Google Vertex AI", ID: "gemini-4-hydrogen", Name: "Gemini 4 Hydrogen"},
+		{Provider: "vertexai", ProviderName: "Google Vertex AI", ID: "gemini-4-hydrogen", Name: "Gemini 4 Hydrogen", Vision: true},
 		{Provider: "vertexai", ProviderName: "Google Vertex AI", ID: "gemini-3-flash-preview", Name: "Gemini 3 Flash"},
 	}, models.Available, "providers sorted by ID, disabled ones left out, model order kept")
 }

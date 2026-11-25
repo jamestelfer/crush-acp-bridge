@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jamestelfer/crush-acp-bridge/internal/crush"
@@ -140,11 +141,34 @@ func TestPromptSendsTextToSession(t *testing.T) {
 		},
 	})
 
-	require.NoError(t, ws.Prompt(t.Context(), "sess-9", "hello"))
+	require.NoError(t, ws.Prompt(t.Context(), "sess-9", crush.Prompt{Text: "hello"}))
 
 	req := srv.last()
 	require.Equal(t, "sess-9", req.Body["session_id"])
 	require.Equal(t, "hello", req.Body["prompt"])
+	assert.NotContains(t, req.Body, "attachments", "a text-only prompt sends no attachments")
+}
+
+func TestPromptSendsAttachmentsAsCrushEncodesThem(t *testing.T) {
+	ws, srv := openFake(t, map[string]http.HandlerFunc{
+		"POST /v1/workspaces/ws-1/agent": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusAccepted)
+		},
+	})
+
+	require.NoError(t, ws.Prompt(t.Context(), "sess-9", crush.Prompt{
+		Text: "what is this?",
+		Attachments: []crush.Attachment{
+			{FilePath: "/work/proj/logo.png", FileName: "logo.png", MimeType: "image/png", Content: []byte("PNG")},
+		},
+	}))
+
+	require.Equal(t, []any{map[string]any{
+		"file_path": "/work/proj/logo.png",
+		"file_name": "logo.png",
+		"mime_type": "image/png",
+		"content":   "UE5H", // Crush's proto.Attachment carries content as standard base64
+	}}, srv.last().Body["attachments"])
 }
 
 func TestPromptWhileBusyReturnsErrBusy(t *testing.T) {
@@ -154,7 +178,7 @@ func TestPromptWhileBusyReturnsErrBusy(t *testing.T) {
 		},
 	})
 
-	err := ws.Prompt(t.Context(), "sess-9", "hello")
+	err := ws.Prompt(t.Context(), "sess-9", crush.Prompt{Text: "hello"})
 
 	require.ErrorIs(t, err, crush.ErrBusy)
 }

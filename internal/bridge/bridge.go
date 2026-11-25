@@ -27,7 +27,7 @@ type Backend interface {
 	NewSession(ctx context.Context, title string) (string, error)
 	DeleteSession(ctx context.Context, sessionID string) error
 	SetCurrentSession(ctx context.Context, sessionID string) error
-	Prompt(ctx context.Context, sessionID, text string) error
+	Prompt(ctx context.Context, sessionID string, p crush.Prompt) error
 	Cancel(ctx context.Context, sessionID string) error
 	Grant(ctx context.Context, permission jsontext.Value, action crush.Action) error
 	Events(ctx context.Context) (<-chan []byte, error)
@@ -234,7 +234,8 @@ func (a *Agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentInfo:       &acp.Implementation{Name: "crush-acp-bridge", Version: "0.0.0"},
 		AgentCapabilities: acp.AgentCapabilities{
-			LoadSession: true,
+			LoadSession:        true,
+			PromptCapabilities: promptCapabilities,
 			SessionCapabilities: acp.SessionCapabilities{
 				List:   &acp.SessionListCapabilities{},
 				Resume: &acp.SessionResumeCapabilities{},
@@ -304,23 +305,29 @@ func (a *Agent) attach(ctx context.Context, backend Backend, id, cwd string) (*a
 
 // Prompt runs one turn and returns when Crush reports it finished.
 func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResponse, error) {
-	s, err := a.startPrompt(req.SessionId)
+	p, err := crushPrompt(req.Prompt)
+	if err != nil {
+		return acp.PromptResponse{}, a.refuseContent(req.SessionId, err)
+	}
+	// Nothing reaches Crush until startPrompt, so a prompt that fails before
+	// it leaves an empty session eligible for clean-up.
+	s, err := a.lookup(req.SessionId)
 	if err != nil {
 		return acp.PromptResponse{}, err
 	}
 	if err := a.awaitConnected(ctx, s.cwd); err != nil {
 		return acp.PromptResponse{}, err
 	}
-
-	var text strings.Builder
-	for _, b := range req.Prompt {
-		if b.Text != nil {
-			text.WriteString(b.Text.Text)
-		}
+	if err := a.checkVision(ctx, a.backend(s.cwd), p); err != nil {
+		return acp.PromptResponse{}, a.refuseContent(req.SessionId, err)
+	}
+	if s, err = a.startPrompt(req.SessionId); err != nil {
+		return acp.PromptResponse{}, err
 	}
 	// sent is set before active, so a catch-up that sees the turn active
-	// also sees which prompt it waits for.
-	s.setSent(text.String())
+	// also sees which prompt it waits for. Crush stores the prompt text
+	// without its attachments.
+	s.setSent(p.Text)
 	defer s.setSent("")
 	s.active.Store(true)
 	defer s.active.Store(false)
@@ -330,7 +337,7 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	}
 	began := time.Now()
 	a.log.Info("prompt started", "session_id", string(req.SessionId))
-	if err := a.backend(s.cwd).Prompt(ctx, string(req.SessionId), text.String()); err != nil {
+	if err := a.backend(s.cwd).Prompt(ctx, string(req.SessionId), p); err != nil {
 		a.log.Error("prompt rejected by crush", "session_id", string(req.SessionId), "error", err)
 		return acp.PromptResponse{}, err
 	}

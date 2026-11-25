@@ -16,11 +16,11 @@ All paths are under `/v1`. Workspace paths are under `/workspaces/{id}`, where `
 | `GET …/sessions` | | Lists sessions, including sub-agent sessions. |
 | `DELETE …/sessions/{sid}` | | Deletes a session and its messages. |
 | `GET …/sessions/{sid}/messages` | | A session's messages, in order, in the shape of the event stream's `message` payloads. |
-| `POST …/agent` | `session_id`, `prompt` | Starts a turn. Returns at once; the turn runs on the server. |
+| `POST …/agent` | `session_id`, `prompt`, `attachments` | Starts a turn. Returns at once; the turn runs on the server. Each attachment has `file_path`, `file_name`, `mime_type` and base64 `content`. Crush inlines `text/*` attachments into the prompt, passes `image/*` and `audio/*` ones to a model with that capability, and drops them silently otherwise. A prompt needs text or a text attachment. |
 | `POST …/agent/sessions/{sid}/cancel` | | Cancels the running turn. |
 | `POST …/permissions/grant` | `action`, `permission` | Answers a permission request. `permission` is the request payload as received; `action` is `allow`, `allow_session` or `deny`. |
 | `POST …/agent/main` | `agent_id` | Sets the main agent, `coder` or `plan`. |
-| `GET …/config` | | The workspace's configuration: `models` (`large`, `small`) and `providers`, each with `name`, `disable` and `models`. |
+| `GET …/config` | | The workspace's configuration: `models` (`large`, `small`) and `providers`, each with `name`, `disable` and `models`. A model's `capabilities.vision` says whether it accepts images. |
 | `POST …/config/model` | `scope`, `model_type`, `model` | Sets the `large` or `small` model. Scope `1` (`config.ScopeWorkspace`) writes `.crush/crush.json` in the project, as `crush run --model` does. |
 | `GET …/agent/default-small-model` | `?provider_id=` | A provider's default small model. |
 | `POST …/agent/update` | | Reloads the agent after a model change. |
