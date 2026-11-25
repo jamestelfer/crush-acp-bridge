@@ -1,33 +1,137 @@
 # crush-acp-bridge
 
-Experimenting with Crush.
-
-An [Agent Client Protocol](https://agentclientprotocol.com) (ACP) agent for
+An [Agent Client Protocol](https://agentclientprotocol.com) (ACP) bridge for
 [Crush](https://github.com/charmbracelet/crush). The bridge speaks ACP over stdio and talks to a
 running `crush server`, so an ACP editor and the Crush TUI work in the same sessions.
 
-This is a spike. It is built and tested against Crush 0.102.0.
+Built and tested against Crush 0.102.0.
 
 ## Installation
 
 Pre-built binaries for Linux, macOS, and Windows (amd64 and arm64) are published to
-[GitHub Releases](https://github.com/jamestelfer/crush-acp-bridge/releases). Every archive
-carries a build provenance attestation.
+[GitHub Releases](https://github.com/jamestelfer/crush-acp-bridge/releases). Every artifact
+carries a build provenance attestation; see [Verifying releases](#verifying-releases).
 
-Verify a downloaded archive with the [GitHub CLI](https://cli.github.com/):
+<details>
+<summary><strong>mise (recommended)</strong></summary>
+
+[mise](https://mise.jdx.dev/) installs from GitHub Releases and verifies the
+artifact's checksum and build provenance attestation:
+
+```sh
+mise use -g github:jamestelfer/crush-acp-bridge
+```
+
+</details>
+
+<details>
+<summary><strong>Install script</strong></summary>
+
+Each release includes an installer that detects your platform and checks the
+download against the checksums embedded in the script:
+
+```sh
+curl -fsSL https://github.com/jamestelfer/crush-acp-bridge/releases/latest/download/install.sh | sh
+```
+
+It installs to `~/.local/bin`. Pass `-b` for another directory. To pin a
+version, fetch the script from that release, so its embedded checksums match:
+
+```sh
+curl -fsSL https://github.com/jamestelfer/crush-acp-bridge/releases/download/v1.2.3/install.sh \
+  | sh -s -- -b /usr/local/bin v1.2.3
+```
+
+The script has its own attestation. A verified script holds the genuine checksums
+for its release and enforces them on the binary, so verifying the script covers
+the binary for that release:
+
+```sh
+curl -fsSL -O https://github.com/jamestelfer/crush-acp-bridge/releases/latest/download/install.sh
+gh attestation verify install.sh --repo jamestelfer/crush-acp-bridge \
+  --signer-workflow chinmina/.github/.github/workflows/goreleaser-release.yml
+sh install.sh
+```
+
+</details>
+
+<details>
+<summary><strong>Homebrew</strong></summary>
+
+```sh
+brew install jamestelfer/tap/crush-acp-bridge
+```
+
+</details>
+
+<details>
+<summary><strong>Nix</strong></summary>
+
+```sh
+nix profile install github:jamestelfer/nixpkgs#crush-acp-bridge
+```
+
+</details>
+
+<details>
+<summary><strong>Manual download</strong></summary>
+
+Download the archive for your platform, verify its provenance, and put the binary on your `PATH`:
+
+```sh
+OS=linux ARCH=amd64   # or darwin/windows, arm64
+curl -fsSLO "https://github.com/jamestelfer/crush-acp-bridge/releases/latest/download/crush-acp-bridge_${OS}_${ARCH}.tar.gz"
+gh attestation verify "crush-acp-bridge_${OS}_${ARCH}.tar.gz" --repo jamestelfer/crush-acp-bridge \
+  --signer-workflow chinmina/.github/.github/workflows/goreleaser-release.yml
+tar -xzf "crush-acp-bridge_${OS}_${ARCH}.tar.gz" crush-acp-bridge
+install -m 0755 crush-acp-bridge ~/.local/bin/
+```
+
+Windows archives are `.zip`.
+
+</details>
+
+<details>
+<summary><strong>go install</strong></summary>
+
+Builds from source report the module version, such as `v0.1.0`, instead of the
+release build metadata.
+
+```sh
+go install github.com/jamestelfer/crush-acp-bridge/cmd/crush-acp-bridge@latest
+```
+
+</details>
+
+## Verifying releases
+
+Release archives and `install.sh` carry a
+[build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds)
+created with [Sigstore](https://www.sigstore.dev/) keyless signing. Each artifact
+is bound, by digest, to the source commit and the workflow run that built it.
+No long-lived signing key exists.
+
+Verify a downloaded artifact with the [GitHub CLI](https://cli.github.com/) (2.49.0 or later):
 
 ```sh
 gh attestation verify crush-acp-bridge_linux_amd64.tar.gz --repo jamestelfer/crush-acp-bridge \
   --signer-workflow chinmina/.github/.github/workflows/goreleaser-release.yml
 ```
 
-Install with any of:
+`--repo` checks the source repository. `--signer-workflow` is required because
+the artifacts are signed by the shared release workflow in `chinmina/.github`,
+not by a workflow in this repository.
+
+`checksums.txt` lists every archive. After downloading it alongside an archive, check with
+`sha256sum --check --ignore-missing checksums.txt`, or `shasum -a 256 --check --ignore-missing checksums.txt` on macOS.
+
+Releases are immutable: once published, their assets cannot be changed and
+their tag cannot be moved. GitHub records a release attestation of the tag,
+commit, and every asset. Check a downloaded file against it with GitHub CLI
+2.81.0 or later:
 
 ```sh
-mise use -g github:jamestelfer/crush-acp-bridge
-brew install jamestelfer/tap/crush-acp-bridge
-nix profile install github:jamestelfer/nixpkgs#crush-acp-bridge
-go install github.com/jamestelfer/crush-acp-bridge/cmd/cli@latest
+gh release verify-asset v1.2.3 crush-acp-bridge_linux_amd64.tar.gz --repo jamestelfer/crush-acp-bridge
 ```
 
 ## Usage
@@ -61,7 +165,8 @@ Set provider credentials on the bridge. See [Provider credentials](#provider-cre
 ### Self-contained: one server per bridge
 
 `--managed` starts `crush server` as a child process on a free local port, connects to it, and stops it
-when the editor disconnects. The server's idle timeout does not apply.
+when the editor disconnects. The bridge raises `CRUSH_SERVER_IDLE_TIMEOUT` to 86400 seconds (24 hours)
+unless it is already set, and removes the server's temporary cache directory when it exits.
 
 ```sh
 crush-acp-bridge --managed
@@ -103,7 +208,8 @@ Configure the editor to run `crush-acp-bridge` as an ACP agent over stdio. For a
 }
 ```
 
-`--crush-url` also accepts a Unix socket: `unix:///path/to/crush.sock`.
+`--crush-url` also accepts a Unix socket (`unix:///path/to/crush.sock`) or, on Windows, a named pipe
+(`npipe:////./pipe/my-crush`).
 
 ### Provider credentials
 
@@ -246,10 +352,11 @@ Supported:
   fails for want of provider credentials names the provider and its variables.
 - Image and embedded-resource prompts, sent to Crush as attachments. Text resources are inlined into the
   prompt; an image is refused when Crush's current model cannot see it. Resource links appear in the prompt
-  text for Crush to read itself. A prompt needs text alongside its attachments.
+  text for Crush to read itself. A prompt needs text or a text attachment.
 - User messages typed in other Crush clients, shown in the editor as they arrive.
 - Model selection (`session/set_config_option`) and the `coder` and `plan` modes (`session/set_mode`).
-- Reconnecting after the event stream drops.
+- Re-subscribing when the event stream drops (keeping turns in flight alive while the server stays up),
+  and reconnecting if the server restarts.
 - `session/load`, `session/resume` and `session/list`. Loading replays the stored conversation: user messages, reasoning, tool calls and replies. The list covers one directory's conversations, newest first, and leaves out sub-agent and empty sessions. Without a `cwd`, it covers only the directories the bridge already has open.
 
 Not supported:
@@ -273,8 +380,9 @@ See `AGENTS.md` for conventions, and `docs/` for design and reference:
 - [Testing](docs/testing.md)
 
 Tests replay SSE traces recorded from Crush 0.102.0 (`testdata/*.sse`) through the translator and the
-bridge, with go-snaps snapshots of the output. `just live` drives the built binary against a running
-Crush server and a real model; it needs `CRUSH_ACP_URL`, `LIVE_CWD` and a configured provider.
+bridge, with go-snaps snapshots of the output. `just live` drives the built binary against Crush and a
+real model: `TestSmoke` starts its own temporary `crush server` when `CRUSH_ACP_URL` is unset, while
+`TestLiveSession` and `TestLiveModelSwitch` need `CRUSH_ACP_URL`, `LIVE_CWD`, and a configured provider.
 
 ## Licence
 

@@ -8,7 +8,7 @@ project_name: crush-acp-bridge
 builds:
   - id: release
     binary: crush-acp-bridge
-    main: ./cmd/cli
+    main: ./cmd/crush-acp-bridge
     flags:
       - "-trimpath"
     ldflags:
@@ -68,7 +68,7 @@ homebrew_casks:
     # pushed for a prerelease tag.
     skip_upload: auto
     homepage: "https://github.com/jamestelfer/crush-acp-bridge"
-    description: "Experimenting with Crush"
+    description: "Agent Client Protocol (ACP) bridge for the Crush coding agent"
     # Clear the macOS quarantine attribute so the binary runs without a
     # Gatekeeper prompt. hooks.post.install would emit the deprecated
     # `postflight` stanza, so custom_block carries `postflight_steps` until
@@ -92,6 +92,6 @@ nix:
       use_github_app_token: true
     skip_upload: auto # no recipe for prerelease tags
     homepage: "https://github.com/jamestelfer/crush-acp-bridge"
-    description: "Experimenting with Crush"
+    description: "Agent Client Protocol (ACP) bridge for the Crush coding agent"
     license: "asl20"
     # No main_program or formatter: binst 0.12.0 rejects both.

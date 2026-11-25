@@ -6,3 +6,10 @@ golangci-lint = "2.15.0"
 goreleaser    = "2.20.3"
 just          = "1.59.0"
 node          = "26.13.1"
+
+[tool_alias]
+binstaller = "github:binary-install/binstaller"
+
+[tools.binstaller]
+version = "0.12.0"
+rename_exe = "binst"

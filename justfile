@@ -18,7 +18,7 @@ build *args:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p dist
-    env CGO_ENABLED=0 go build -trimpath -o dist/crush-acp-bridge {{args}} ./cmd/cli
+    env CGO_ENABLED=0 go build -trimpath -o dist/crush-acp-bridge {{args}} ./cmd/crush-acp-bridge
 
 # Run linter
 lint:

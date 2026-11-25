@@ -12,7 +12,7 @@ Decisions behind this design are in [adr/](adr/README.md). The Crush API it reli
 
 | Package | Role |
 |---|---|
-| `cmd/cli` | The `crush-acp-bridge` binary. Parses flags with urfave/cli v3, picks the server (`--crush-url`, `--managed` or `--shared`), builds the `Opener`, and calls `bridge.Serve`. |
+| `cmd/crush-acp-bridge` | The `crush-acp-bridge` binary. Parses flags with urfave/cli v3, picks the server (`--crush-url`, `--managed` or `--shared`), builds the `Opener`, and calls `bridge.Serve`. |
 | `internal/bridge` | The ACP agent. Implements the ACP methods, tracks directories and sessions, forwards translated updates, relays permission requests, and reconnects. |
 | `internal/translate` | Converts Crush SSE events and stored messages into ACP-shaped `Update` values. No ACP or HTTP dependency. |
 | `internal/crush` | HTTP client for the Crush server API, over TCP or a Unix socket. `*crush.Workspace` satisfies `bridge.Backend`. |

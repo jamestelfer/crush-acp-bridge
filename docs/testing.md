@@ -9,7 +9,7 @@
 | Translator replay | `internal/translate` | Nothing |
 | Bridge replay | `internal/bridge` | Nothing |
 | Crush client | `internal/crush` | Nothing; tests use `httptest` servers |
-| Server lifecycle and CLI | `internal/crushserver`, `cmd/cli` | Nothing; the fake Crush stands in for the binary |
+| Server lifecycle and CLI | `internal/crushserver`, `cmd/crush-acp-bridge` | Nothing; the fake Crush stands in for the binary |
 | Live | `internal/live`, build tag `live` | A running `crush server`, a configured provider, a real model |
 | Manual | `just acpx`, Paseo | As live |
 
@@ -43,7 +43,7 @@ Every golden test uses go-snaps. Snapshots live in `__snapshots__` next to the t
 
 `internal/fakecrush` serves the part of the Crush HTTP API that start-up and lifecycle code uses: health, workspace open, and a test-only `/_fake/env` that reports the server's environment.
 
-Packages that start a `crush` child (`internal/crushserver`, `cmd/cli`) call `fakecrush.MaybeRunAsServer()` first in `TestMain`. Tests then spawn `os.Args[0]` as the `crush` executable with `CRUSH_FAKE_SERVER` set:
+Packages that start a `crush` child (`internal/crushserver`, `cmd/crush-acp-bridge`) call `fakecrush.MaybeRunAsServer()` first in `TestMain`. Tests then spawn `os.Args[0]` as the `crush` executable with `CRUSH_FAKE_SERVER` set:
 
 - `serve` (the default when set): listen on the `--host` address, or on Crush's default socket without one, and serve. Like Crush, it exits when the address is taken. `/_fake/pid` and `/_fake/exit` let tests identify and stop it.
 - `exit`: fail at once.
