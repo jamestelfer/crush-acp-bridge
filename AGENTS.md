@@ -53,7 +53,7 @@ Tool versions (Go, golangci-lint, goreleaser, just, Crush, gcloud, Node) are pin
 ## Test doubles for Crush
 
 `internal/fakecrush` serves the part of the Crush API the bridge uses. Packages that start a child
-process (`internal/crushserver`, `cmd/cli`) call `fakecrush.MaybeRunAsServer()` from `TestMain` and
+process (`internal/crushserver`, `cmd/crush-acp-bridge`) call `fakecrush.MaybeRunAsServer()` from `TestMain` and
 spawn `os.Args[0]` as the `crush` executable, so tests need no external binary and run on every platform.
 
 ## Cross-platform rules
@@ -62,7 +62,7 @@ Linux, macOS and Windows on `amd64` and `arm64` are equal targets, all tested in
 
 ## Project layout
 
-`cmd/cli/` holds the `main` package, built as the `crush-acp-bridge` binary. Application logic grows into packages alongside it; `main` stays a thin layer over them.
+`cmd/crush-acp-bridge/` holds the `main` package, built as the `crush-acp-bridge` binary. Application logic grows into packages alongside it; `main` stays a thin layer over them.
 
 ## Commits and PR titles
 
@@ -85,7 +85,7 @@ Cite PRs, issues, ADRs, tests or file paths, never commit hashes. Branches are s
 
 ## Releases
 
-release-please opens a release PR from Conventional Commits on `main`. Merging it creates a draft release and pushes the `v*` tag; `release.yml` then runs the shared chinmina GoReleaser workflow, which builds the matrix, attests provenance, publishes the draft, and commits the Homebrew cask to `jamestelfer/homebrew-tap` and the Nix recipe to `jamestelfer/nixpkgs`. The workflows mint keyless tokens through octo-sts, against the `release-please-crush-acp-bridge`, `release-crush-acp-bridge` and `release-tap` trust policies in `jamestelfer/.github`. Repository configuration follows `docs/reference/repository-configuration.md` in `chinmina/.github`.
+release-please opens a release PR from Conventional Commits on `main`. Merging it creates a draft release and pushes the `v*` tag; `release.yml` then runs the shared chinmina GoReleaser workflow, which builds the matrix, generates `install.sh` via binstaller, attests provenance, publishes the draft, and commits the Homebrew cask to `jamestelfer/homebrew-tap` and the Nix recipe to `jamestelfer/nixpkgs`. The workflows mint keyless tokens through octo-sts, against the `release-please-crush-acp-bridge`, `release-crush-acp-bridge` and `release-tap` trust policies in `jamestelfer/.github`. Repository configuration follows `docs/reference/repository-configuration.md` in `chinmina/.github`.
 
 ## Major dependencies
 
