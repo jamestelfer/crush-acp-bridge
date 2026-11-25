@@ -1,5 +1,9 @@
 # crush-acp-bridge
 
+> [!NOTE]
+> **Working, but experimental.** The bridge can already self-host, though it
+> needs more real-world traffic against a wide variety of models to harden.
+
 An [Agent Client Protocol](https://agentclientprotocol.com) (ACP) bridge for
 [Crush](https://github.com/charmbracelet/crush). The bridge speaks ACP over stdio and talks to a
 running `crush server`, so an ACP editor and the Crush TUI work in the same sessions.
