@@ -320,8 +320,8 @@ provider that runs the bridge in shared mode, then run `paseo reload`:
 Paseo starts one bridge per agent. The bridges share one Crush server, so several agents can work in
 the same directory. Each agent works in its own directory, including a git worktree. Paseo lists Crush's
 models and modes, and asks for a mode when it creates a Crush agent. Permission requests appear in Paseo
-with the command to be run, or the diff of a file edit. Crush's questions appear as permission requests
-with one option per answer.
+with the command to be run, or the diff of a file edit. Crush's questions are never permission requests:
+Paseo gets them as a form if it advertises form elicitation, and otherwise Crush asks in plain chat text.
 
 Paseo caches each provider's model list. Run `paseo provider diagnostic crush` to refresh it after
 changing Crush's providers.
@@ -346,11 +346,14 @@ Supported:
   shows each replaced fragment. A write Crush does not ask about, such as one already allowed for the
   session, records only a unified diff, which is shown as text.
 - Permission requests: allow once, allow for the session, and reject.
-- Questions from Crush's `question` tool, asked one at a time as permission requests: Yes and No, or one
-  option per choice. A free-text or multi-choice question uses a form when the editor offers form
-  elicitation. Elsewhere a free-text question can only be skipped, and a multi-choice question takes one
-  choice. Dismissing a question cancels the batch and ends Crush's turn. An editor that approves
-  permission requests without asking answers each question with Yes or its first choice.
+- Questions from Crush's `question` tool. An editor that advertises form elicitation (`elicitation.form`)
+  gets each batch as one form, with every question optional and a free-text box beside each single- or
+  multi-choice question; submitting answers the batch, declining skips every question and lets the turn continue, and
+  cancelling cancels the batch and ends Crush's turn. Any other editor gets no question UI: the bridge
+  answers the batch at once with empty answers and a note telling the model to ask in plain text, so the
+  model asks in chat. A batch that looks like it asks for a password, key, token or other credential is
+  never shown as a form; it goes to chat even for a form-capable editor. Questions are never sent as
+  permission requests, so an editor that auto-approves permissions cannot answer them by accident.
 - `session/cancel`. The prompt returns the `cancelled` stop reason.
 - Turn failures. A turn Crush ends with an error fails the prompt with Crush's account of it. A prompt that
   fails for want of provider credentials names the provider and its variables.

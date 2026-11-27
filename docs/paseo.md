@@ -37,6 +37,7 @@ No method-not-found is reachable from Paseo.
 
 The bridge shapes some updates for Paseo; [ADR 7](adr/0007-diff-content-sources.md) has the detail.
 
+- Questions: Crush's `question` tool is answered by the chat fallback unless Paseo advertises `elicitation.form` in `initialize`. The bridge sends the questions as a tool call update (title and list of questions), then answers the batch with an empty answer and a note, so the model asks in chat text and Paseo is expected to show that as an ordinary agent message; this has not been observed in a Paseo run. Once Paseo advertises `elicitation.form`, the bridge switches to one `elicitation/create` form per batch with no change on the bridge side. Paseo is not asked anything through `session/request_permission` for a question. The form path is covered by unit tests with a fake editor; verifying how Paseo renders it, and whether it renders per-option descriptions inside a titled `oneOf`, waits for a Paseo that advertises the capability.
 - Paseo renders a permission request from the tool call it already holds, not from the request's own copy. The bridge sends a tool call update with the diff before the request.
 - Paseo reads an edit tool call's text content as a unified diff. The bridge drops Crush's confirmation text from successful edit results, and sends a write's unified diff as text when it has nothing better.
 - Paseo shows only the first diff entry of a `multiedit` until the whole-file diff arrives: [#14](https://github.com/jamestelfer/crush-acp-bridge/issues/14).
