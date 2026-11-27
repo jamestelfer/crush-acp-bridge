@@ -206,6 +206,36 @@ func TestSmoke(t *testing.T) {
 		assert.Contains(t, ed.resetText(), "SMOKE_ATTACH_7391")
 	})
 
+	t.Run("questions_chat_fallback", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+		defer cancel()
+		cwd := t.TempDir()
+
+		ed := newSmokeEditor(acp.ClientCapabilities{})
+		b := startSmokeBridge(t, ctx, smokeConfig{
+			args:   []string{"--crush-url", serverURL},
+			editor: ed,
+		})
+		defer b.close(t)
+
+		sess, err := b.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
+		require.NoError(t, err)
+
+		resp, err := b.conn.Prompt(ctx, acp.PromptRequest{
+			SessionId: sess.SessionId,
+			Prompt: []acp.ContentBlock{acp.TextBlock(
+				"Use the question tool once with a single batch of two questions: " +
+					"a single_choice question offering Alpha or Beta, " +
+					"and a free_text question asking for a code word. " +
+					"Do not create or edit any file. If the questions cannot be asked, ask me in plain text.",
+			)},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, acp.StopReasonEndTurn, resp.StopReason)
+		assert.Empty(t, ed.permissions(), "the chat fallback must not ask for permission")
+		assert.NotEmpty(t, strings.TrimSpace(ed.resetText()), "the model should ask in chat")
+	})
+
 	t.Run("resubscribe_on_stream_drop", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 		defer cancel()

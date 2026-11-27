@@ -68,6 +68,8 @@ func Serve(ctx context.Context, open Opener, in io.Reader, out io.Writer, opts .
 		modes:      map[string]acp.SessionModeId{},
 		sessions:   map[string]*session{},
 		asking:     map[string]bool{},
+		batches:    map[string]batchRun{},
+		questions:  chatFallbackQuestionHandler{},
 		serveCtx:   ctx,
 		log:        slog.New(slog.DiscardHandler),
 	}
@@ -126,7 +128,10 @@ type Agent struct {
 	reconnects map[string]chan struct{}     // closed when a directory reconnects
 	modes      map[string]acp.SessionModeId // Crush's active agent, by directory
 	sessions   map[string]*session
-	asking     map[string]bool // permission requests the editor is answering, by ID
+	asking     map[string]bool     // permission requests and question batches in progress, by ID
+	batches    map[string]batchRun // active question batches, by batch ID
+	// questions settles question batches; Initialize may choose another.
+	questions questionHandler
 
 	// closing is set once Serve starts deleting empty sessions. From then on
 	// no prompt starts and no session is created, so none is deleted after
@@ -388,6 +393,7 @@ func (a *Agent) Cancel(ctx context.Context, n acp.CancelNotification) error {
 		return err
 	}
 	a.log.Info("cancel requested", "session_id", string(n.SessionId))
+	a.cancelBatches(func(_ string, b batchRun) bool { return b.sessionID == string(n.SessionId) })
 	return a.backend(s.cwd).Cancel(ctx, string(n.SessionId))
 }
 
@@ -805,6 +811,7 @@ func (a *Agent) forward(u *translate.Update) {
 		}
 		a.send(sid, acp.UpdateToolCall(acp.ToolCallId(u.ToolCallID), opts...))
 	case translate.ToolCallFinished:
+		a.cancelBatches(func(_ string, b batchRun) bool { return b.toolCallID == u.ToolCallID })
 		status := acp.ToolCallStatusCompleted
 		content := []acp.ToolCallContent{acp.ToolContent(acp.TextBlock(u.Output))}
 		if u.IsError {
@@ -821,8 +828,8 @@ func (a *Agent) forward(u *translate.Update) {
 		))
 	case translate.PermissionRequested:
 		a.requestPermission(s, u)
-	case translate.QuestionAsked:
-		a.log.Warn("ignoring question batch; question handling is not implemented", "batch_id", u.BatchID, "session", sid)
+	case translate.QuestionAsked, translate.QuestionResolved:
+		a.questionEvent(s, u)
 	case translate.TurnEnded:
 		s.end(turnEndOf(u))
 	}

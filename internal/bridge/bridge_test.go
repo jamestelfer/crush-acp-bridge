@@ -99,6 +99,7 @@ type fakeCrush struct {
 	cancelledQ  []string   // question batches cancelled, in order
 	answerErr   error      // returned once by AnswerQuestions when set
 	cancelErr   error      // returned by CancelQuestions when set
+	onAnswer    trace      // events Crush emits once a question batch is answered
 	models      crush.Models
 	modelsErr   error
 	setModels   []crush.ModelRef
@@ -352,6 +353,9 @@ func (f *fakeCrush) AnswerQuestions(_ context.Context, batchID string, answers [
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.answered = append(f.answered, answered{batchID, answers})
+	for _, data := range f.onAnswer {
+		f.events <- data
+	}
 	err := f.answerErr
 	f.answerErr = nil
 	return err == nil, err
