@@ -29,21 +29,22 @@ func customKey(i int) string { return questionKey(i) + "_custom" }
 // answer or skipped.
 func elicitationForm(u translate.Update) *acp.CreateElicitationForm {
 	props := make(map[string]acp.ElicitationPropertySchema, len(u.Questions))
+	multi := len(u.Questions) > 1
 	for i, q := range u.Questions {
 		switch q.Type {
 		case translate.YesNo:
-			props[questionKey(i)] = choiceField(q, []acp.EnumOption{
+			props[questionKey(i)] = choiceField(q, multi, []acp.EnumOption{
 				{Const: yesValue, Title: "Yes"},
 				{Const: noValue, Title: "No"},
 			})
 		case translate.SingleChoice:
-			props[questionKey(i)] = choiceField(q, enumOptions(q.Choices))
-			props[customKey(i)] = customField(q)
+			props[questionKey(i)] = choiceField(q, multi, enumOptions(q.Choices))
+			props[customKey(i)] = customField(q, multi)
 		case translate.MultiChoice:
-			props[questionKey(i)] = multiChoiceField(q)
-			props[customKey(i)] = customField(q)
+			props[questionKey(i)] = multiChoiceField(q, multi)
+			props[customKey(i)] = customField(q, multi)
 		default:
-			props[questionKey(i)] = textField(q)
+			props[questionKey(i)] = textField(q, multi)
 		}
 	}
 
@@ -95,27 +96,48 @@ func optional(s string) *string {
 	return &s
 }
 
-func choiceField(q translate.Question, opts []acp.EnumOption) acp.ElicitationPropertySchema {
+// fieldTitle is a question's short label, with the question itself as the
+// description when the form asks several questions. A form of one question
+// already carries its text as the message.
+func fieldTitle(q translate.Question, multi bool) (title string, description *string) {
+	if q.Label == "" {
+		return q.Text, optional(q.Description)
+	}
+	var parts []string
+	if multi {
+		parts = append(parts, q.Text)
+	}
+	if q.Description != "" {
+		parts = append(parts, q.Description)
+	}
+	return q.Label, optional(strings.Join(parts, "\n\n"))
+}
+
+func choiceField(q translate.Question, multi bool, opts []acp.EnumOption) acp.ElicitationPropertySchema {
+	title, desc := fieldTitle(q, multi)
 	return acp.ElicitationPropertySchema{String: &acp.ElicitationPropertySchemaString{
-		Type: "string", Title: &q.Text, Description: optional(q.Description), OneOf: opts,
+		Type: "string", Title: &title, Description: desc, OneOf: opts,
 	}}
 }
 
-func multiChoiceField(q translate.Question) acp.ElicitationPropertySchema {
+func multiChoiceField(q translate.Question, multi bool) acp.ElicitationPropertySchema {
+	title, desc := fieldTitle(q, multi)
 	return acp.ElicitationPropertySchema{Array: &acp.ElicitationPropertySchemaArray{
-		Type: "array", Title: &q.Text, Description: optional(q.Description),
+		Type: "array", Title: &title, Description: desc,
 		Items: acp.MultiSelectItems{Titled: &acp.TitledMultiSelectItems{AnyOf: enumOptions(q.Choices)}},
 	}}
 }
 
-func customField(q translate.Question) acp.ElicitationPropertySchema {
-	title := "Other answer to: " + q.Text
+func customField(q translate.Question, multi bool) acp.ElicitationPropertySchema {
+	base, _ := fieldTitle(q, multi)
+	title := "Other answer to: " + base
 	return acp.ElicitationPropertySchema{String: &acp.ElicitationPropertySchemaString{Type: "string", Title: &title}}
 }
 
-func textField(q translate.Question) acp.ElicitationPropertySchema {
+func textField(q translate.Question, multi bool) acp.ElicitationPropertySchema {
+	title, desc := fieldTitle(q, multi)
 	return acp.ElicitationPropertySchema{String: &acp.ElicitationPropertySchemaString{
-		Type: "string", Title: &q.Text, Description: optional(q.Description),
+		Type: "string", Title: &title, Description: desc,
 	}}
 }
 
@@ -197,25 +219,42 @@ func offeredIDs(choices []translate.Choice, ids []string) []string {
 }
 
 // The ACP elicitation spec forbids asking a form for passwords, API keys,
-// tokens, private keys, recovery codes or payment credentials. A question
-// asks for one when it asks the user to hand it over, not whenever it names
-// one, so "Should passwords be hashed with bcrypt?" is let through.
+// tokens, private keys, recovery codes or payment credentials. A form that
+// collects one is a protocol violation, while a batch sent to chat instead is
+// merely less convenient, so the guard errs towards flagging: a sentence that
+// names a credential is flagged unless it reads as a design question about
+// one ("Should passwords be hashed with bcrypt?"), and a credential is flagged
+// regardless when the sentence asks the user for it.
 var (
-	credentialNoun = `pass(?:word|words|phrase|code)s?|api[ _-]?keys?|(?:secret|access|private|ssh|signing) keys?` +
-		`|tokens?|secrets?|credentials?` +
-		`|recovery codes?|backup codes?|security codes?|verification codes?|one[- ]time (?:code|password)s?|2fa codes?|mfa codes?` +
-		`|cvv|cvc|card numbers?|credit cards?|card details|bank account numbers?|social security numbers?|ssn`
-	credentialAsked = regexp.MustCompile(
-		`\b(?:(?:enter|provide|paste|share|type|give|supply|send|input|submit|tell me|what is|what's|which|need)\b[^.?!\n]{0,60}?|(?:your|my|the user's)\s+(?:\w+\s+)?)` +
-			`(` + credentialNoun + `)\b`)
+	strongCredentialNoun = `pass(?:words?|phrases?|codes?)|mot de passe|api[ _-]?keys?|(?:secret|access|private|ssh|signing|encryption) keys?` +
+		`|tokens?|secrets?|credentials?|pats?|jwts?|seed phrases?|recovery (?:phrases?|codes?)|backup codes?` +
+		`|security codes?|verification codes?|one[- ]time (?:codes?|passwords?)|[a-z0-9]+fa codes?|mfa codes?` +
+		`|connection strings?|cvv|cvc|card numbers?|credit cards?|card details|bank account numbers?` +
+		`|social security numbers?|ssn|id_rsa`
+	// Words that are credentials only in the right company, so they count
+	// only when the user is being asked for them.
+	contextualNouns = `pin|pin (?:code|number)|cookies?|keys? for|\.env`
+	credentialNoun  = regexp.MustCompile(`\b(` + strongCredentialNoun + `)\b|\b(` + contextualNouns + `)\b|(\.env)\b`)
+
+	// askedFrame ends a sentence's text before a credential noun when the
+	// user is asked to hand it over.
+	askedFrame = regexp.MustCompile(
+		`(?:\b(?:enter|provide|paste|share|type|give|supply|send|input|submit|upload|tell me|what(?:'s| is)?|which|need)\b[^.?!\n]{0,60}` +
+			`|\b(?:your|my|the user's)\b(?:\W+\w+){0,3}\W*)$`)
 	// discussedNotAsked follows a credential noun that is the subject of a
 	// design question rather than something to hand over.
-	discussedNotAsked = regexp.MustCompile(`^\s+(?:policy|policies|hash|hashing|requirements?|rules?|length|strength|validation|manager|rotation|storage|store|field|format|limits?|type|size|algorithm|expir\w*|lifetime)\b`)
+	discussedNotAsked = regexp.MustCompile(`^\s+(?:policy|policies|hash|hashing|hashed|requirements?|rules?|length|strength|validation|manager|rotation|storage|store|field|format|limits?|type|size|algorithm|expir\w*|lifetime|reset|flow)\b`)
+	// designCue marks a sentence as a design discussion when it names a
+	// credential without asking for one.
+	designCue = regexp.MustCompile(`\b(?:hash\w*|bcrypt|argon\w*|scrypt|encrypt\w*|salt\w*|rotat\w+|policy|policies|manager|vault|stor(?:e|ed|age)|expir\w+|lifetime|` +
+		`environment variable|env var|read from|should we|should the|should i|use|using|prefer|implement|support|add|generate|limit|format|algorithm|flow|reset)\b`)
+	sentenceEnd = regexp.MustCompile(`[?!\n]+|\.(?:\s|$)`)
 )
 
 // asksForCredentials reports whether any text of the batch asks the user for
-// a credential or secret. It inspects each question's text, label and
-// description, and each choice's label and description.
+// a credential or secret, or is too close to one to risk a form. It inspects
+// each question's text, label and description, and each choice's label and
+// description.
 func asksForCredentials(qs []translate.Question) bool {
 	for _, q := range qs {
 		texts := []string{q.Text, q.Label, q.Description}
@@ -230,9 +269,28 @@ func asksForCredentials(qs []translate.Question) bool {
 }
 
 func asksForCredential(text string) bool {
-	lower := strings.ToLower(text)
-	for _, m := range credentialAsked.FindAllStringSubmatchIndex(lower, -1) {
-		if !discussedNotAsked.MatchString(lower[m[1]:]) {
+	for sentence := range slices.Values(sentenceEnd.Split(strings.ToLower(text), -1)) {
+		if sentenceNamesCredential(sentence) {
+			return true
+		}
+	}
+	return false
+}
+
+// sentenceNamesCredential judges each credential noun of a sentence on its
+// own, so a design phrase ("password manager") cannot hide a later request
+// ("master password").
+func sentenceNamesCredential(sentence string) bool {
+	for _, m := range credentialNoun.FindAllStringSubmatchIndex(sentence, -1) {
+		weak := m[4] >= 0 || m[6] >= 0
+		start, end := m[0], m[1]
+		if discussedNotAsked.MatchString(sentence[end:]) {
+			continue
+		}
+		if askedFrame.MatchString(sentence[:start]) {
+			return true
+		}
+		if !weak && !designCue.MatchString(sentence) {
 			return true
 		}
 	}

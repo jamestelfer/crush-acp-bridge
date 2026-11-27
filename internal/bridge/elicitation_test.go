@@ -78,8 +78,8 @@ func TestElicitationFormFields(t *testing.T) {
 		f := props["q0"].String
 		require.NotNil(t, f)
 		assert.Equal(t, "string", f.Type)
-		assert.Equal(t, "English or French?", *f.Title)
-		assert.Equal(t, "Pick one.", *f.Description)
+		assert.Equal(t, "Language", *f.Title)
+		assert.Equal(t, "English or French?\n\nPick one.", *f.Description, "the question is the description beside several others")
 		desc := "the default"
 		assert.Equal(t, []acp.EnumOption{
 			{Const: "en", Title: "English", Description: &desc},
@@ -243,6 +243,26 @@ func TestCredentialGuard(t *testing.T) {
 		"Please enter your credentials",
 		"Which auth token should the service use?",
 		"What is the secret?",
+		"Password?",
+		"Database password",
+		"OpenAI API key",
+		"GitHub PAT",
+		"What password should the admin account use?",
+		"What API key should I use?",
+		"What token should the bot use?",
+		"Your GitHub personal access token?",
+		"Paste your PAT",
+		"Enter your PIN",
+		"Paste your JWT",
+		"Enter your wallet seed phrase",
+		"Enter your recovery phrase",
+		"Paste the session cookie",
+		"Paste the database connection string",
+		"Paste the contents of ~/.ssh/id_rsa",
+		"Enter the key for the S3 bucket",
+		"Enter your password manager master password",
+		"Entrez votre mot de passe",
+		"Paste your .env file",
 		"What is your social security number?",
 	}
 	for _, text := range asks {
@@ -265,6 +285,9 @@ func TestCredentialGuard(t *testing.T) {
 		"What is your preferred test framework?",
 		"Should I rotate the secrets manager keys?",
 		"Whose name should be greeted?",
+		"Should we pin the base image version?",
+		"Should the service store the session cookie as HttpOnly?",
+		"How long should password reset links stay valid?",
 	}
 	for _, text := range fine {
 		t.Run("allows "+text, func(t *testing.T) {
@@ -285,4 +308,28 @@ func TestCredentialGuardInspectsEveryTextOfTheBatch(t *testing.T) {
 			assert.True(t, asksForCredentials([]translate.Question{nameQ, q}))
 		})
 	}
+}
+
+func TestElicitationFieldTitles(t *testing.T) {
+	t.Run("a single labelled question leaves its text to the message", func(t *testing.T) {
+		form := elicitationForm(translate.Update{Questions: []translate.Question{langQ}})
+		f := form.RequestedSchema.Properties["q0"].String
+		assert.Equal(t, "English or French?", form.Message)
+		assert.Equal(t, "Language", *f.Title)
+		assert.Equal(t, "Pick one.", *f.Description)
+		assert.Equal(t, "Other answer to: Language", *form.RequestedSchema.Properties["q0_custom"].String.Title)
+	})
+
+	t.Run("a single labelled question without a description has none", func(t *testing.T) {
+		q := translate.Question{ID: "n", Type: translate.FreeText, Label: "Name", Text: "Whose name?"}
+		f := elicitationForm(translate.Update{Questions: []translate.Question{q}}).RequestedSchema.Properties["q0"].String
+		assert.Equal(t, "Name", *f.Title)
+		assert.Nil(t, f.Description)
+	})
+
+	t.Run("a question without a label is titled by its text", func(t *testing.T) {
+		f := elicitationForm(translate.Update{Questions: []translate.Question{exclaimQ, nameQ}}).RequestedSchema.Properties["q0"].String
+		assert.Equal(t, "End with an exclamation mark?", *f.Title)
+		assert.Nil(t, f.Description)
+	})
 }
