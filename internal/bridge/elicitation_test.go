@@ -263,6 +263,14 @@ func TestCredentialGuard(t *testing.T) {
 		"Enter your password manager master password",
 		"Entrez votre mot de passe",
 		"Paste your .env file",
+		"API key to use for OpenAI",
+		"Password for the admin account you'd like to use",
+		"OpenAI API key (I'll use it for this request)",
+		"Database password I should use",
+		"API key we should use for Stripe",
+		"GitHub token to add to the CI secrets",
+		"Token for the deploy, I'll add it to .npmrc",
+		"Use JWT access tokens or server sessions?",
 		"What is your social security number?",
 	}
 	for _, text := range asks {
@@ -274,7 +282,6 @@ func TestCredentialGuard(t *testing.T) {
 	fine := []string{
 		"Should passwords be hashed with bcrypt or argon2?",
 		"Which token limit should the model use?",
-		"Use JWT access tokens or server sessions?",
 		"Should the API key be read from an environment variable?",
 		"Provide a password policy for the service",
 		"Do you want me to add a password reset flow?",

@@ -245,9 +245,11 @@ var (
 	// design question rather than something to hand over.
 	discussedNotAsked = regexp.MustCompile(`^\s+(?:policy|policies|hash|hashing|hashed|requirements?|rules?|length|strength|validation|manager|rotation|storage|store|field|format|limits?|type|size|algorithm|expir\w*|lifetime|reset|flow)\b`)
 	// designCue marks a sentence as a design discussion when it names a
-	// credential without asking for one.
-	designCue = regexp.MustCompile(`\b(?:hash\w*|bcrypt|argon\w*|scrypt|encrypt\w*|salt\w*|rotat\w+|policy|policies|manager|vault|stor(?:e|ed|age)|expir\w+|lifetime|` +
-		`environment variable|env var|read from|should we|should the|should i|use|using|prefer|implement|support|add|generate|limit|format|algorithm|flow|reset)\b`)
+	// credential without asking for one. Only words about handling
+	// credentials belong here: a generic verb such as "use" or "add" also
+	// appears in a plain request for one.
+	designCue = regexp.MustCompile(`\b(?:hash\w*|bcrypt|argon\w*|scrypt|encrypt\w*|salt\w*|rotat\w+|policy|policies|manager|vault|expir\w+|lifetime|` +
+		`environment variable|env var|reset|flow)\b`)
 	sentenceEnd = regexp.MustCompile(`[?!\n]+|\.(?:\s|$)`)
 )
 
