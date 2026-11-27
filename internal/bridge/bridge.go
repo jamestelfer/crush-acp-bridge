@@ -126,11 +126,7 @@ type Agent struct {
 	reconnects map[string]chan struct{}     // closed when a directory reconnects
 	modes      map[string]acp.SessionModeId // Crush's active agent, by directory
 	sessions   map[string]*session
-	asking     map[string]bool // permission requests and question batches the editor is answering, by ID
-
-	// formElicitation is set when the editor advertises form elicitation, so
-	// a free-text question can take a typed answer.
-	formElicitation atomic.Bool
+	asking     map[string]bool // permission requests the editor is answering, by ID
 
 	// closing is set once Serve starts deleting empty sessions. From then on
 	// no prompt starts and no session is created, so none is deleted after
@@ -236,8 +232,6 @@ var _ acp.Agent = (*Agent)(nil)
 
 // Initialize negotiates capabilities.
 func (a *Agent) Initialize(_ context.Context, req acp.InitializeRequest) (acp.InitializeResponse, error) {
-	e := req.ClientCapabilities.Elicitation
-	a.formElicitation.Store(e != nil && e.Form != nil)
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentInfo:       &acp.Implementation{Name: "crush-acp-bridge", Version: "0.0.0"},
@@ -828,7 +822,7 @@ func (a *Agent) forward(u *translate.Update) {
 	case translate.PermissionRequested:
 		a.requestPermission(s, u)
 	case translate.QuestionAsked:
-		a.askQuestions(s, u)
+		a.log.Warn("ignoring question batch; question handling is not implemented", "batch_id", u.BatchID, "session", sid)
 	case translate.TurnEnded:
 		s.end(turnEndOf(u))
 	}
