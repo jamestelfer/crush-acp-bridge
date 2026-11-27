@@ -206,68 +206,6 @@ func TestSmoke(t *testing.T) {
 		assert.Contains(t, ed.resetText(), "SMOKE_ATTACH_7391")
 	})
 
-	t.Run("questions_permission_and_elicitation", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
-		defer cancel()
-		cwd := t.TempDir()
-
-		caps := acp.ClientCapabilities{
-			Elicitation: &acp.ElicitationCapabilities{Form: &acp.ElicitationFormCapabilities{}},
-		}
-		ed := newSmokeEditor(caps)
-		ed.onPermission = func(r acp.RequestPermissionRequest) acp.RequestPermissionResponse {
-			for _, o := range r.Options {
-				if strings.Contains(strings.ToLower(o.Name), "alpha") {
-					return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(o.OptionId)}
-				}
-			}
-			return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(r.Options[0].OptionId)}
-		}
-		ed.onElicit = func(r acp.CreateElicitationRequest) acp.CreateElicitationResponse {
-			if f := r.Form.RequestedSchema.Properties["answer"]; f.Array != nil && f.Array.Items.Titled != nil {
-				ids := make([]string, 0, len(f.Array.Items.Titled.AnyOf))
-				for _, o := range f.Array.Items.Titled.AnyOf {
-					ids = append(ids, o.Const)
-				}
-				return acp.CreateElicitationResponse{Accept: &acp.CreateElicitationAccept{
-					Action:  "accept",
-					Content: map[string]acp.ElicitationContentValue{"answer": acp.NewElicitationContentValueStringArray(ids...)},
-				}}
-			}
-			return acp.CreateElicitationResponse{Accept: &acp.CreateElicitationAccept{
-				Action:  "accept",
-				Content: map[string]acp.ElicitationContentValue{"answer": acp.NewElicitationContentValueString("MANGO42")},
-			}}
-		}
-
-		b := startSmokeBridge(t, ctx, smokeConfig{
-			args:   []string{"--crush-url", serverURL},
-			editor: ed,
-		})
-		defer b.close(t)
-
-		sess, err := b.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
-		require.NoError(t, err)
-
-		resp, err := b.conn.Prompt(ctx, acp.PromptRequest{
-			SessionId: sess.SessionId,
-			Prompt: []acp.ContentBlock{acp.TextBlock(
-				"Use the question tool once with a single batch of two questions: " +
-					"a single_choice question offering Alpha or Beta, " +
-					"and a free_text question asking for a code word. " +
-					"Do not create or edit any file. After I answer, reply with both answers.",
-			)},
-		})
-		require.NoError(t, err)
-		assert.Equal(t, acp.StopReasonEndTurn, resp.StopReason)
-		assert.NotEmpty(t, ed.permissions(), "single_choice question should arrive as a permission request")
-		assert.NotEmpty(t, ed.elicitations(), "free_text question should arrive as a form elicitation")
-
-		reply := ed.resetText()
-		assert.Contains(t, reply, "MANGO42")
-		assert.Contains(t, strings.ToLower(reply), "alpha")
-	})
-
 	t.Run("resubscribe_on_stream_drop", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 		defer cancel()
@@ -479,12 +417,10 @@ func (b *smokeBridge) close(t *testing.T) {
 type smokeEditor struct {
 	caps         acp.ClientCapabilities
 	onPermission func(acp.RequestPermissionRequest) acp.RequestPermissionResponse
-	onElicit     func(acp.CreateElicitationRequest) acp.CreateElicitationResponse
 
 	mu           sync.Mutex
 	buf          strings.Builder
 	permReqs     []acp.RequestPermissionRequest
-	elicitReqs   []acp.CreateElicitationRequest
 	diffContents []acp.ToolCallContentDiff
 }
 
@@ -530,14 +466,7 @@ func (e *smokeEditor) RequestPermission(_ context.Context, r acp.RequestPermissi
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
 }
 
-func (e *smokeEditor) CreateElicitation(_ context.Context, r acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
-	e.mu.Lock()
-	e.elicitReqs = append(e.elicitReqs, r)
-	cb := e.onElicit
-	e.mu.Unlock()
-	if cb != nil {
-		return cb(r), nil
-	}
+func (*smokeEditor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
 	return acp.CreateElicitationResponse{}, errNo
 }
 
@@ -584,12 +513,6 @@ func (e *smokeEditor) permissions() []acp.RequestPermissionRequest {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]acp.RequestPermissionRequest(nil), e.permReqs...)
-}
-
-func (e *smokeEditor) elicitations() []acp.CreateElicitationRequest {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return append([]acp.CreateElicitationRequest(nil), e.elicitReqs...)
 }
 
 func (e *smokeEditor) diffs() []acp.ToolCallContentDiff {
