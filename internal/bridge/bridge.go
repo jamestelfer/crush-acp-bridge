@@ -130,6 +130,7 @@ type Agent struct {
 	sessions   map[string]*session
 	asking     map[string]bool     // permission requests and question batches in progress, by ID
 	batches    map[string]batchRun // active question batches, by batch ID
+	batchRuns  uint64              // registrations of batches so far
 	// questions settles question batches; Initialize may choose another.
 	questions questionHandler
 
@@ -831,6 +832,7 @@ func (a *Agent) forward(u *translate.Update) {
 	case translate.QuestionAsked, translate.QuestionResolved:
 		a.questionEvent(s, u)
 	case translate.TurnEnded:
+		a.cancelBatches(func(_ string, b batchRun) bool { return b.sessionID == u.SessionID })
 		s.end(turnEndOf(u))
 	}
 }

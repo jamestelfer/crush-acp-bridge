@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -281,4 +282,89 @@ func TestCancelledBatchIsNeverAnsweredLate(t *testing.T) {
 			assert.Empty(t, backend.cancelledBatches())
 		})
 	}
+}
+
+// flakyHandler fails its first call after the batch was resolved, and holds
+// its second until released.
+type flakyHandler struct {
+	mu       sync.Mutex
+	calls    int
+	release1 chan struct{}
+	ctx2     chan context.Context
+}
+
+func (h *flakyHandler) Handle(ctx context.Context, _ bridge.Backend, _ translate.Update) error {
+	h.mu.Lock()
+	h.calls++
+	n := h.calls
+	h.mu.Unlock()
+	switch n {
+	case 1:
+		<-h.release1
+		return errors.New("answer questions: connection refused")
+	case 2:
+		h.ctx2 <- ctx
+		<-ctx.Done()
+	}
+	return nil
+}
+
+func (h *flakyHandler) callCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.calls
+}
+
+func TestFailedHandlerDoesNotForgetALaterRunOfTheSameBatch(t *testing.T) {
+	tr := loadTrace(t, "question-batch.sse")
+	_, after := splitAtBatch(t, tr)
+	batch := batchEvent(t, tr)
+	backend := newFakeCrush(tr.sessionID(t), nil)
+	h := &flakyHandler{release1: make(chan struct{}), ctx2: make(chan context.Context, 1)}
+	conn := connect(t, backend, &editor{}, bridge.WithQuestionHandler(h))
+	_ = start(t, conn)
+
+	backend.push(trace{batch})
+	require.Eventually(t, func() bool { return h.callCount() == 1 }, 2*time.Second, 10*time.Millisecond)
+	// Crush resolves the batch, then sends the same ID again as a new batch.
+	backend.push(after[:1])
+	backend.push(trace{batch})
+	require.Eventually(t, func() bool { return h.callCount() == 2 }, 2*time.Second, 10*time.Millisecond)
+	ctx2 := <-h.ctx2
+
+	close(h.release1) // the first run fails only now
+	time.Sleep(100 * time.Millisecond)
+
+	require.NoError(t, ctx2.Err(), "the later run is still live")
+	backend.push(trace{batch})
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, 2, h.callCount(), "the later run still counts as asked")
+}
+
+func TestTurnEndCancelsTheSessionsBatches(t *testing.T) {
+	tr := loadTrace(t, "question-batch.sse")
+	before, _ := splitAtBatch(t, tr)
+	backend := newFakeCrush(tr.sessionID(t), before)
+	h := blockingHandler{started: make(chan struct{}), ended: make(chan error, 1)}
+	conn := connect(t, backend, &editor{}, bridge.WithQuestionHandler(h))
+	sid := start(t, conn)
+
+	_ = promptAsync(t, conn, sid, questionPrompt)
+	<-h.started
+	var turnEnd []byte
+	for _, data := range tr {
+		if eventType(t, data) == "message" && bytes.Contains(data, []byte(`"reason":"end_turn"`)) {
+			turnEnd = data
+		}
+	}
+	require.NotNil(t, turnEnd)
+	backend.push(trace{turnEnd})
+
+	select {
+	case err := <-h.ended:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "the turn's end did not cancel the batch")
+	}
+	assert.Empty(t, backend.answeredBatches())
 }

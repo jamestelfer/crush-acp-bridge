@@ -21,6 +21,7 @@ type questionHandler interface {
 
 // batchRun is an active question batch's cancellation.
 type batchRun struct {
+	run        uint64 // tells this registration from a later one for the same batch
 	sessionID  string
 	toolCallID string
 	cancel     context.CancelFunc
@@ -48,13 +49,13 @@ func (a *Agent) askQuestions(s *session, u *translate.Update) {
 		acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(batchText(u.Questions)))}),
 	))
 
-	ctx := a.beginBatch(u)
+	ctx, run := a.beginBatch(u)
 	// A handler may wait minutes on the editor; do not stall the event loop.
 	go func(u translate.Update, backend Backend) {
 		if err := a.questions.Handle(ctx, backend, u); err != nil {
 			a.log.Warn("question outcome not delivered",
 				"error", err, "batch_id", u.BatchID, "session_id", u.SessionID)
-			a.dropBatch(u.BatchID)
+			a.dropBatch(u.BatchID, run)
 		}
 	}(*u, a.backend(s.cwd))
 }
@@ -63,21 +64,27 @@ func (a *Agent) askQuestions(s *session, u *translate.Update) {
 // after it is answered, until Crush resolves it, its tool call finishes or the
 // session is cancelled, so a re-delivery in between is ignored. Registering
 // happens on the event loop, so a later event for the batch always finds it.
-func (a *Agent) beginBatch(u *translate.Update) context.Context {
+func (a *Agent) beginBatch(u *translate.Update) (context.Context, uint64) {
 	ctx, cancel := context.WithCancel(a.serveCtx)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.batches[u.BatchID] = batchRun{sessionID: u.SessionID, toolCallID: u.ToolCallID, cancel: cancel}
-	return ctx
+	a.batchRuns++
+	a.batches[u.BatchID] = batchRun{run: a.batchRuns, sessionID: u.SessionID, toolCallID: u.ToolCallID, cancel: cancel}
+	return ctx, a.batchRuns
 }
 
-// dropBatch forgets a batch whose outcome did not reach Crush, so Crush's
-// re-delivery of it is handled again.
-func (a *Agent) dropBatch(batchID string) {
+// dropBatch forgets the registration run made for a batch whose outcome did
+// not reach Crush, so Crush's re-delivery of it is handled again. A later
+// registration of the same batch, after it was resolved and re-sent, is left
+// alone.
+func (a *Agent) dropBatch(batchID string, run uint64) {
 	a.mu.Lock()
 	b, ok := a.batches[batchID]
-	delete(a.batches, batchID)
-	delete(a.asking, batchID)
+	ok = ok && b.run == run
+	if ok {
+		delete(a.batches, batchID)
+		delete(a.asking, batchID)
+	}
 	a.mu.Unlock()
 	if ok {
 		b.cancel()
