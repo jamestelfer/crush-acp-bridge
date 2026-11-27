@@ -29,7 +29,6 @@ func customKey(i int) string { return questionKey(i) + "_custom" }
 // answer or skipped.
 func elicitationForm(u translate.Update) *acp.CreateElicitationForm {
 	props := make(map[string]acp.ElicitationPropertySchema, len(u.Questions))
-	var required []string
 	for i, q := range u.Questions {
 		switch q.Type {
 		case translate.YesNo:
@@ -45,14 +44,13 @@ func elicitationForm(u translate.Update) *acp.CreateElicitationForm {
 			props[customKey(i)] = customField(q)
 		default:
 			props[questionKey(i)] = textField(q)
-			required = append(required, questionKey(i))
 		}
 	}
 
 	form := &acp.CreateElicitationForm{
 		Mode:            "form",
 		Message:         formMessage(u),
-		RequestedSchema: acp.ElicitationSchema{Type: "object", Properties: props, Required: required},
+		RequestedSchema: acp.ElicitationSchema{Type: "object", Properties: props},
 		Session:         &acp.ElicitationSessionScope{SessionId: acp.SessionId(u.SessionID)},
 	}
 	if u.ToolCallID != "" {
@@ -204,15 +202,15 @@ func offeredIDs(choices []translate.Choice, ids []string) []string {
 // one, so "Should passwords be hashed with bcrypt?" is let through.
 var (
 	credentialNoun = `pass(?:word|words|phrase|code)s?|api[ _-]?keys?|(?:secret|access|private|ssh|signing) keys?` +
-		`|client secrets?|(?:api|auth|access|bearer|refresh|session|personal access|secret) tokens?` +
+		`|tokens?|secrets?|credentials?` +
 		`|recovery codes?|backup codes?|security codes?|verification codes?|one[- ]time (?:code|password)s?|2fa codes?|mfa codes?` +
 		`|cvv|cvc|card numbers?|credit cards?|card details|bank account numbers?|social security numbers?|ssn`
 	credentialAsked = regexp.MustCompile(
-		`\b(?:(?:enter|provide|paste|share|type|give|supply|send|input|submit|tell me|what is|what's|need)\b[^.?!\n]{0,60}?|(?:your|my|the user's)\s+(?:\w+\s+)?)` +
+		`\b(?:(?:enter|provide|paste|share|type|give|supply|send|input|submit|tell me|what is|what's|which|need)\b[^.?!\n]{0,60}?|(?:your|my|the user's)\s+(?:\w+\s+)?)` +
 			`(` + credentialNoun + `)\b`)
 	// discussedNotAsked follows a credential noun that is the subject of a
 	// design question rather than something to hand over.
-	discussedNotAsked = regexp.MustCompile(`^\s+(?:policy|policies|hash|hashing|requirements?|rules?|length|strength|validation|manager|rotation|storage|field|format)\b`)
+	discussedNotAsked = regexp.MustCompile(`^\s+(?:policy|policies|hash|hashing|requirements?|rules?|length|strength|validation|manager|rotation|storage|store|field|format|limits?|type|size|algorithm|expir\w*|lifetime)\b`)
 )
 
 // asksForCredentials reports whether any text of the batch asks the user for

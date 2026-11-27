@@ -119,12 +119,9 @@ func TestElicitationFormFields(t *testing.T) {
 	})
 }
 
-func TestElicitationFormNeverRequiresAChoiceField(t *testing.T) {
+func TestElicitationFormRequiresNoField(t *testing.T) {
 	u := translate.Update{Questions: []translate.Question{langQ, exclaimQ, nameQ, toppingQ}}
-	assert.Equal(t, []string{"q2"}, elicitationForm(u).RequestedSchema.Required, "only the free-text question is required")
-
-	only := translate.Update{Questions: []translate.Question{langQ, exclaimQ, toppingQ}}
-	assert.Empty(t, elicitationForm(only).RequestedSchema.Required)
+	assert.Empty(t, elicitationForm(u).RequestedSchema.Required, "every question may be skipped")
 }
 
 func TestElicitationAnswers(t *testing.T) {
@@ -241,6 +238,11 @@ func TestCredentialGuard(t *testing.T) {
 		"Please provide your credit card number",
 		"Provide your CVV",
 		"Send the bearer token",
+		"Paste your token",
+		"Enter your GitHub token",
+		"Please enter your credentials",
+		"Which auth token should the service use?",
+		"What is the secret?",
 		"What is your social security number?",
 	}
 	for _, text := range asks {
