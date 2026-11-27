@@ -1,0 +1,108 @@
+
+[TestFormEditorGetsTheWholeBatchAsOneForm - 1]
+{
+ "message": "Ready to greet?\n\nWe'll generate the appropriate greeting based on these preferences.",
+ "mode": "form",
+ "requestedSchema": {
+  "properties": {
+   "q0": {
+    "description": "Should the greeting be in English or French?\n\nSelect the language you want to use for the greeting.",
+    "oneOf": [
+     {
+      "const": "en",
+      "title": "English"
+     },
+     {
+      "const": "fr",
+      "title": "French"
+     }
+    ],
+    "title": "Language",
+    "type": "string"
+   },
+   "q0_custom": {
+    "title": "Other answer to: Language",
+    "type": "string"
+   },
+   "q1": {
+    "description": "Should we end it with an exclamation mark?\n\nAdds an enthusiastic exclamation mark at the end of the greeting.",
+    "oneOf": [
+     {
+      "const": "yes",
+      "title": "Yes"
+     },
+     {
+      "const": "no",
+      "title": "No"
+     }
+    ],
+    "title": "Exclamation",
+    "type": "string"
+   },
+   "q2": {
+    "description": "Whose name should be greeted?\n\nProvide the name of the person to be greeted.",
+    "title": "Name",
+    "type": "string"
+   }
+  },
+  "type": "object"
+ },
+ "sessionId": "a8cd137c-4786-4409-b86d-c64711797633",
+ "toolCallId": "call_5373993239042528834"
+}
+---
+
+[TestFormForMultiChoiceAndYesNoBatch - 1]
+{
+ "message": "Ready to greet?\n\nWe'll generate the appropriate greeting based on these preferences.",
+ "mode": "form",
+ "requestedSchema": {
+  "properties": {
+   "q0": {
+    "description": "Should the greeting be in English or French?\n\nSelect the language you want to use for the greeting.",
+    "items": {
+     "anyOf": [
+      {
+       "const": "en",
+       "title": "English"
+      },
+      {
+       "const": "fr",
+       "title": "French"
+      }
+     ]
+    },
+    "title": "Language",
+    "type": "array"
+   },
+   "q0_custom": {
+    "title": "Other answer to: Language",
+    "type": "string"
+   },
+   "q1": {
+    "description": "Should we end it with an exclamation mark?\n\nAdds an enthusiastic exclamation mark at the end of the greeting.",
+    "oneOf": [
+     {
+      "const": "yes",
+      "title": "Yes"
+     },
+     {
+      "const": "no",
+      "title": "No"
+     }
+    ],
+    "title": "Exclamation",
+    "type": "string"
+   },
+   "q2": {
+    "description": "Whose name should be greeted?\n\nProvide the name of the person to be greeted.",
+    "title": "Name",
+    "type": "string"
+   }
+  },
+  "type": "object"
+ },
+ "sessionId": "a8cd137c-4786-4409-b86d-c64711797633",
+ "toolCallId": "call_5373993239042528834"
+}
+---

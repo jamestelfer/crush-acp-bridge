@@ -233,9 +233,91 @@ func TestSmoke(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, acp.StopReasonEndTurn, resp.StopReason)
 		assert.Empty(t, ed.permissions(), "the chat fallback must not ask for permission")
-		assert.Zero(t, ed.elicitations(), "the chat fallback must not elicit")
+		assert.Zero(t, ed.elicitationCount(), "the chat fallback must not elicit")
 		assert.Contains(t, ed.toolCallTitles(), "2 questions", "the question tool must have run and been shown")
 		assert.NotEmpty(t, strings.TrimSpace(ed.resetText()), "the model should ask in chat")
+	})
+
+	t.Run("questions_form_elicitation", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+		defer cancel()
+		cwd := t.TempDir()
+
+		ed := newSmokeEditor(acp.ClientCapabilities{
+			Elicitation: &acp.ElicitationCapabilities{Form: &acp.ElicitationFormCapabilities{}},
+		})
+		ed.onElicit = func(r acp.CreateElicitationRequest) acp.CreateElicitationResponse {
+			content := map[string]acp.ElicitationContentValue{}
+			for key, f := range r.Form.RequestedSchema.Properties {
+				switch {
+				case f.Array != nil:
+					ids := make([]string, 0, len(f.Array.Items.Titled.AnyOf))
+					for _, o := range f.Array.Items.Titled.AnyOf {
+						ids = append(ids, o.Const)
+					}
+					content[key] = acp.NewElicitationContentValueStringArray(ids...)
+				case f.String != nil && len(f.String.OneOf) > 0 && !strings.HasSuffix(key, "_custom"):
+					content[key] = acp.NewElicitationContentValueString(f.String.OneOf[0].Const)
+				case f.String != nil && strings.HasSuffix(key, "_custom"):
+					content[key] = acp.NewElicitationContentValueString("CUSTOM77")
+				case f.String != nil:
+					content[key] = acp.NewElicitationContentValueString("MANGO42")
+				}
+			}
+			return acp.CreateElicitationResponse{Accept: &acp.CreateElicitationAccept{Action: "accept", Content: content}}
+		}
+		b := startSmokeBridge(t, ctx, smokeConfig{args: []string{"--crush-url", serverURL}, editor: ed})
+		defer b.close(t)
+
+		sess, err := b.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
+		require.NoError(t, err)
+		resp, err := b.conn.Prompt(ctx, acp.PromptRequest{
+			SessionId: sess.SessionId,
+			Prompt: []acp.ContentBlock{acp.TextBlock(
+				"Use the question tool once with a single batch of four questions: " +
+					"a single_choice question offering Alpha or Beta, a yes_no question about whether to continue, " +
+					"a multi_choice question offering Red, Green or Blue, and a free_text question asking for a code word. " +
+					"Do not create or edit any file. After I answer, reply with all my answers.",
+			)},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, acp.StopReasonEndTurn, resp.StopReason)
+		assert.Empty(t, ed.permissions(), "questions must not arrive as permission requests")
+		reqs := ed.elicitations()
+		require.Len(t, reqs, 1, "the whole batch is one elicitation")
+		assert.Len(t, reqs[0].Form.RequestedSchema.Properties, 6, "four questions plus two custom fields")
+		reply := ed.resetText()
+		assert.Contains(t, reply, "MANGO42")
+		assert.Contains(t, reply, "CUSTOM77", "the custom answer must reach the model")
+	})
+
+	t.Run("questions_form_decline", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+		defer cancel()
+		cwd := t.TempDir()
+
+		ed := newSmokeEditor(acp.ClientCapabilities{
+			Elicitation: &acp.ElicitationCapabilities{Form: &acp.ElicitationFormCapabilities{}},
+		})
+		ed.onElicit = func(acp.CreateElicitationRequest) acp.CreateElicitationResponse {
+			return acp.CreateElicitationResponse{Decline: &acp.CreateElicitationDecline{Action: "decline"}}
+		}
+		b := startSmokeBridge(t, ctx, smokeConfig{args: []string{"--crush-url", serverURL}, editor: ed})
+		defer b.close(t)
+
+		sess, err := b.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
+		require.NoError(t, err)
+		resp, err := b.conn.Prompt(ctx, acp.PromptRequest{
+			SessionId: sess.SessionId,
+			Prompt: []acp.ContentBlock{acp.TextBlock(
+				"Use the question tool once with a single question asking for a code word. " +
+					"Do not create or edit any file. If I skip it, say so in one sentence.",
+			)},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, acp.StopReasonEndTurn, resp.StopReason)
+		assert.Len(t, ed.elicitations(), 1)
+		assert.NotEmpty(t, strings.TrimSpace(ed.resetText()), "the turn continues after a decline")
 	})
 
 	t.Run("resubscribe_on_stream_drop", func(t *testing.T) {
@@ -455,6 +537,8 @@ type smokeEditor struct {
 	permReqs     []acp.RequestPermissionRequest
 	diffContents []acp.ToolCallContentDiff
 	elicitCount  int
+	onElicit     func(acp.CreateElicitationRequest) acp.CreateElicitationResponse
+	elicitReqs   []acp.CreateElicitationRequest
 	toolTitles   []string
 }
 
@@ -503,10 +587,15 @@ func (e *smokeEditor) RequestPermission(_ context.Context, r acp.RequestPermissi
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
 }
 
-func (e *smokeEditor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+func (e *smokeEditor) CreateElicitation(_ context.Context, r acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
 	e.mu.Lock()
 	e.elicitCount++
+	e.elicitReqs = append(e.elicitReqs, r)
+	cb := e.onElicit
 	e.mu.Unlock()
+	if cb != nil {
+		return cb(r), nil
+	}
 	return acp.CreateElicitationResponse{}, errNo
 }
 
@@ -549,10 +638,16 @@ func (e *smokeEditor) resetText() string {
 	return s
 }
 
-func (e *smokeEditor) elicitations() int {
+func (e *smokeEditor) elicitationCount() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.elicitCount
+}
+
+func (e *smokeEditor) elicitations() []acp.CreateElicitationRequest {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]acp.CreateElicitationRequest(nil), e.elicitReqs...)
 }
 
 func (e *smokeEditor) toolCallTitles() []string {

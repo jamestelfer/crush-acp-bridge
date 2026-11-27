@@ -103,8 +103,8 @@ func initWith(t *testing.T, conn *acp.ClientSideConnection, caps acp.ClientCapab
 
 func TestChatFallbackAnswersEmptyWithANoteAndEndsTheTurn(t *testing.T) {
 	tests := map[string]acp.ClientCapabilities{
-		"no elicitation":   {},
-		"form elicitation": {Elicitation: &acp.ElicitationCapabilities{Form: &acp.ElicitationFormCapabilities{}}},
+		"no elicitation":           {},
+		"elicitation without form": {Elicitation: &acp.ElicitationCapabilities{}},
 	}
 	for name, caps := range tests {
 		t.Run(name, func(t *testing.T) {
