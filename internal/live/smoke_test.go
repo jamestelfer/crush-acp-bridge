@@ -206,6 +206,38 @@ func TestSmoke(t *testing.T) {
 		assert.Contains(t, ed.resetText(), "SMOKE_ATTACH_7391")
 	})
 
+	t.Run("questions_chat_fallback", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+		defer cancel()
+		cwd := t.TempDir()
+
+		ed := newSmokeEditor(acp.ClientCapabilities{})
+		b := startSmokeBridge(t, ctx, smokeConfig{
+			args:   []string{"--crush-url", serverURL},
+			editor: ed,
+		})
+		defer b.close(t)
+
+		sess, err := b.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
+		require.NoError(t, err)
+
+		resp, err := b.conn.Prompt(ctx, acp.PromptRequest{
+			SessionId: sess.SessionId,
+			Prompt: []acp.ContentBlock{acp.TextBlock(
+				"Use the question tool once with a single batch of two questions: " +
+					"a single_choice question offering Alpha or Beta, " +
+					"and a free_text question asking for a code word. " +
+					"Do not create or edit any file.",
+			)},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, acp.StopReasonEndTurn, resp.StopReason)
+		assert.Empty(t, ed.permissions(), "the chat fallback must not ask for permission")
+		assert.Zero(t, ed.elicitations(), "the chat fallback must not elicit")
+		assert.Contains(t, ed.toolCallTitles(), "2 questions", "the question tool must have run and been shown")
+		assert.NotEmpty(t, strings.TrimSpace(ed.resetText()), "the model should ask in chat")
+	})
+
 	t.Run("resubscribe_on_stream_drop", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 		defer cancel()
@@ -422,6 +454,8 @@ type smokeEditor struct {
 	buf          strings.Builder
 	permReqs     []acp.RequestPermissionRequest
 	diffContents []acp.ToolCallContentDiff
+	elicitCount  int
+	toolTitles   []string
 }
 
 func newSmokeEditor(caps acp.ClientCapabilities) *smokeEditor {
@@ -435,6 +469,9 @@ func (e *smokeEditor) SessionUpdate(_ context.Context, n acp.SessionNotification
 		e.buf.WriteString(c.Content.Text.Text)
 	}
 	if u := n.Update.ToolCallUpdate; u != nil {
+		if title, ok := u.Title.Value(); ok {
+			e.toolTitles = append(e.toolTitles, title)
+		}
 		if contents, ok := u.Content.Value(); ok {
 			for _, c := range contents {
 				if c.Diff != nil {
@@ -466,7 +503,10 @@ func (e *smokeEditor) RequestPermission(_ context.Context, r acp.RequestPermissi
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
 }
 
-func (*smokeEditor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+func (e *smokeEditor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+	e.mu.Lock()
+	e.elicitCount++
+	e.mu.Unlock()
 	return acp.CreateElicitationResponse{}, errNo
 }
 
@@ -507,6 +547,18 @@ func (e *smokeEditor) resetText() string {
 	s := e.buf.String()
 	e.buf.Reset()
 	return s
+}
+
+func (e *smokeEditor) elicitations() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.elicitCount
+}
+
+func (e *smokeEditor) toolCallTitles() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.toolTitles...)
 }
 
 func (e *smokeEditor) permissions() []acp.RequestPermissionRequest {

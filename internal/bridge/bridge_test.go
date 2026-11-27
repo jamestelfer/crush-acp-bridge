@@ -99,6 +99,7 @@ type fakeCrush struct {
 	cancelledQ  []string   // question batches cancelled, in order
 	answerErr   error      // returned once by AnswerQuestions when set
 	cancelErr   error      // returned by CancelQuestions when set
+	onAnswer    trace      // events Crush emits once a question batch is answered
 	models      crush.Models
 	modelsErr   error
 	setModels   []crush.ModelRef
@@ -352,6 +353,9 @@ func (f *fakeCrush) AnswerQuestions(_ context.Context, batchID string, answers [
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.answered = append(f.answered, answered{batchID, answers})
+	for _, data := range f.onAnswer {
+		f.events <- data
+	}
 	err := f.answerErr
 	f.answerErr = nil
 	return err == nil, err
@@ -370,6 +374,7 @@ type editor struct {
 	updates     []acp.SessionUpdate
 	sessions    []acp.SessionId // the session of each entry in updates
 	onPermisson func(acp.RequestPermissionRequest) acp.RequestPermissionResponse
+	elicited    atomic.Int32 // elicitation requests received, all refused
 }
 
 func (e *editor) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
@@ -417,7 +422,8 @@ func (*editor) WaitForTerminalExit(context.Context, acp.WaitForTerminalExitReque
 	return acp.WaitForTerminalExitResponse{}, errNoFS
 }
 
-func (*editor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+func (e *editor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+	e.elicited.Add(1)
 	return acp.CreateElicitationResponse{}, errNoFS
 }
 func (*editor) CompleteElicitation(context.Context, acp.CompleteElicitationNotification) error {
