@@ -347,8 +347,8 @@ Supported:
   session, records only a unified diff, which is shown as text.
 - Permission requests: allow once, allow for the session, and reject.
 - Questions from Crush's `question` tool. An editor that advertises form elicitation (`elicitation.form`)
-  gets each batch as one form, with every question optional and a free-text box beside each choice
-  question; submitting answers the batch, declining skips every question and lets the turn continue, and
+  gets each batch as one form, with every question optional and a free-text box beside each single- or
+  multi-choice question; submitting answers the batch, declining skips every question and lets the turn continue, and
   cancelling cancels the batch and ends Crush's turn. Any other editor gets no question UI: the bridge
   answers the batch at once with empty answers and a note telling the model to ask in plain text, so the
   model asks in chat. A batch that looks like it asks for a password, key, token or other credential is
