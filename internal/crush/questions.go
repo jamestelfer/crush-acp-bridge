@@ -14,7 +14,14 @@ type QuestionAnswer struct {
 	SelectedIDs []string `json:"selected_ids,omitzero"`
 	FillInText  string   `json:"fill_in_text,omitzero"`
 	Yes         *bool    `json:"yes,omitzero"`
+	// Notes carries free text per choice ID, and the batch-level note under
+	// QuestionNoteKey.
+	Notes map[string]string `json:"notes,omitzero"`
 }
+
+// QuestionNoteKey is the Notes key for the note on the question as a whole,
+// matching Crush's question.QuestionNoteKey.
+const QuestionNoteKey = "_question"
 
 // resolution is Crush's reply to a question answer or cancel. Resolved is
 // false when the batch was no longer pending, such as when another client

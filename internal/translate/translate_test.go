@@ -345,6 +345,8 @@ func TestQuestionBatchIsSurfacedWithItsToolCall(t *testing.T) {
 	require.Equal(t, "ccacbfd4-687f-4a4b-a1fa-f1f46d38bac2", u.BatchID)
 	require.Equal(t, "a8cd137c-4786-4409-b86d-c64711797633", u.SessionID)
 	require.Equal(t, "call_5373993239042528834", u.ToolCallID)
+	require.Equal(t, "Ready to greet?", u.ConfirmTitle)
+	require.Equal(t, "We'll generate the appropriate greeting based on these preferences.", u.ConfirmDescription)
 	require.Equal(t, []translate.Question{
 		{
 			ID: "655fcadf-67d9-43c3-a9aa-dfa415d0d710", Type: translate.SingleChoice, Label: "Language",
@@ -363,6 +365,23 @@ func TestQuestionBatchIsSurfacedWithItsToolCall(t *testing.T) {
 			Description: "Provide the name of the person to be greeted.",
 		},
 	}, u.Questions)
+}
+
+func TestQuestionBatchNotificationResolvesTheBatch(t *testing.T) {
+	tr := translate.New()
+	var resolved []translate.Update
+	for _, data := range replay(t, "question-batch.sse") {
+		updates, err := tr.Feed(data)
+		require.NoError(t, err)
+		for _, u := range updates {
+			if u.Kind == translate.QuestionResolved {
+				resolved = append(resolved, u)
+			}
+		}
+	}
+	require.Len(t, resolved, 1)
+	require.Equal(t, "ccacbfd4-687f-4a4b-a1fa-f1f46d38bac2", resolved[0].BatchID)
+	require.Equal(t, "a8cd137c-4786-4409-b86d-c64711797633", resolved[0].SessionID)
 }
 
 func TestQuestionToolCallFinishesWithTheAnswers(t *testing.T) {
