@@ -56,7 +56,7 @@ No external binary is needed, so these tests run on every CI platform.
 `just live` builds the binary and runs `go test -tags live ./internal/live/`. Extra `go test` arguments can be passed through, for example `just live -run TestSmoke`.
 
 - `TestLiveSession` and `TestLiveModelSwitch` need `CRUSH_ACP_URL` (the server's base URL), `LIVE_CWD` (an empty project directory the agent may write to), and a provider configured in Crush with its credentials in the environment.
-- `TestSmoke` (`internal/live/smoke_test.go`) is an expandable end-to-end smoke suite covering session lifecycle and probe clean-up, modes and edit diffs, attachments, questions (permissions and form elicitation), SSE drop resubscription, `--managed` cache clean-up and missing-credential errors, and `--shared` isolation. It uses `CRUSH_ACP_URL` when set, or starts and tears down its own temporary `crush server` on a free loopback port, using fresh temporary project directories for every subtest.
+- `TestSmoke` (`internal/live/smoke_test.go`) is an expandable end-to-end smoke suite covering session lifecycle and probe clean-up, modes and edit diffs, attachments, questions (`questions_chat_fallback`, `questions_form_elicitation` and `questions_form_decline`), SSE drop resubscription, `--managed` cache clean-up and missing-credential errors, and `--shared` isolation. It uses `CRUSH_ACP_URL` when set, or starts and tears down its own temporary `crush server` on a free loopback port, using fresh temporary project directories for every subtest.
 
 Start a server for `TestLiveSession` and `TestLiveModelSwitch` with a long idle timeout:
 
