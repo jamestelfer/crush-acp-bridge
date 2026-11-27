@@ -2,6 +2,23 @@
 
 A Go command line project, shipped as a single static executable.
 
+## Design, status and knowledge
+
+- Design: `docs/architecture.md`; decisions: `docs/adr/` (numbered, never renumbered; a changed decision gets a new record that supersedes the old one, and `docs/adr/README.md` lists them all).
+- Requirements and status live in GitHub Issues on `jamestelfer/crush-acp-bridge`. When a team of agents (OpenRig `sdlc-v1`) works here, its missions and slices track execution of those issues, and each slice's PR closes or references its issue. `plans/next-steps.md` is the historical spike tracker; don't add new work to it.
+- Knowledge graduates into the repository: decisions to `docs/adr/`, Crush and editor behaviour findings to `docs/crush-server.md`, `docs/paseo.md` or `docs/testing.md`, user-facing behaviour to `README.md`.
+- Verification: `just verify` before every commit; `just live -run TestSmoke` against a running `crush server` before calling bridge behaviour done.
+
+## Decisions for the owner
+
+Stop and ask before:
+
+- changing the ACP surface the bridge advertises or the Crush API calls it depends on in a way not already covered by an accepted ADR or an issue's approach;
+- superseding or rewriting an accepted ADR;
+- adding a dependency or changing pinned tool versions in `mise.toml`;
+- touching release, CI or repository-configuration workflows;
+- pushing, opening or merging a PR.
+
 ## Go version
 
 This project uses **Go 1.27**, which was released after the AI knowledge cutoff. Do not rely on training data for Go stdlib or dependency APIs — always fetch current documentation via Context7 before using an unfamiliar API.
