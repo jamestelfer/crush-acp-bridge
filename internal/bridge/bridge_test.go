@@ -374,6 +374,7 @@ type editor struct {
 	updates     []acp.SessionUpdate
 	sessions    []acp.SessionId // the session of each entry in updates
 	onPermisson func(acp.RequestPermissionRequest) acp.RequestPermissionResponse
+	elicited    atomic.Int32 // elicitation requests received, all refused
 }
 
 func (e *editor) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
@@ -421,7 +422,8 @@ func (*editor) WaitForTerminalExit(context.Context, acp.WaitForTerminalExitReque
 	return acp.WaitForTerminalExitResponse{}, errNoFS
 }
 
-func (*editor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+func (e *editor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+	e.elicited.Add(1)
 	return acp.CreateElicitationResponse{}, errNoFS
 }
 func (*editor) CompleteElicitation(context.Context, acp.CompleteElicitationNotification) error {

@@ -227,12 +227,14 @@ func TestSmoke(t *testing.T) {
 				"Use the question tool once with a single batch of two questions: " +
 					"a single_choice question offering Alpha or Beta, " +
 					"and a free_text question asking for a code word. " +
-					"Do not create or edit any file. If the questions cannot be asked, ask me in plain text.",
+					"Do not create or edit any file.",
 			)},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, acp.StopReasonEndTurn, resp.StopReason)
 		assert.Empty(t, ed.permissions(), "the chat fallback must not ask for permission")
+		assert.Zero(t, ed.elicitations(), "the chat fallback must not elicit")
+		assert.Contains(t, ed.toolCallTitles(), "2 questions", "the question tool must have run and been shown")
 		assert.NotEmpty(t, strings.TrimSpace(ed.resetText()), "the model should ask in chat")
 	})
 
@@ -452,6 +454,8 @@ type smokeEditor struct {
 	buf          strings.Builder
 	permReqs     []acp.RequestPermissionRequest
 	diffContents []acp.ToolCallContentDiff
+	elicitCount  int
+	toolTitles   []string
 }
 
 func newSmokeEditor(caps acp.ClientCapabilities) *smokeEditor {
@@ -465,6 +469,9 @@ func (e *smokeEditor) SessionUpdate(_ context.Context, n acp.SessionNotification
 		e.buf.WriteString(c.Content.Text.Text)
 	}
 	if u := n.Update.ToolCallUpdate; u != nil {
+		if title, ok := u.Title.Value(); ok {
+			e.toolTitles = append(e.toolTitles, title)
+		}
 		if contents, ok := u.Content.Value(); ok {
 			for _, c := range contents {
 				if c.Diff != nil {
@@ -496,7 +503,10 @@ func (e *smokeEditor) RequestPermission(_ context.Context, r acp.RequestPermissi
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
 }
 
-func (*smokeEditor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+func (e *smokeEditor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+	e.mu.Lock()
+	e.elicitCount++
+	e.mu.Unlock()
 	return acp.CreateElicitationResponse{}, errNo
 }
 
@@ -537,6 +547,18 @@ func (e *smokeEditor) resetText() string {
 	s := e.buf.String()
 	e.buf.Reset()
 	return s
+}
+
+func (e *smokeEditor) elicitations() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.elicitCount
+}
+
+func (e *smokeEditor) toolCallTitles() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.toolTitles...)
 }
 
 func (e *smokeEditor) permissions() []acp.RequestPermissionRequest {

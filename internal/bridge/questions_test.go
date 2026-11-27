@@ -122,6 +122,7 @@ func TestChatFallbackAnswersEmptyWithANoteAndEndsTheTurn(t *testing.T) {
 
 			assert.Equal(t, acp.StopReasonEndTurn, resp.StopReason)
 			assert.Zero(t, perms, "no permission request")
+			assert.Zero(t, ed.elicited.Load(), "no elicitation request")
 			assert.Empty(t, backend.cancelledBatches())
 			got := backend.answeredBatches()
 			require.Len(t, got, 1)
@@ -170,6 +171,24 @@ func TestQuestionBatchRedeliveredWhileHandledIsHandledOnce(t *testing.T) {
 	prompt(t, conn, sid, questionPrompt)
 
 	assert.Len(t, backend.answeredBatches(), 1)
+}
+
+func TestResolvedBatchIsForgottenSoItsIDCanBeAskedAgain(t *testing.T) {
+	tr := loadTrace(t, "question-batch.sse")
+	backend := questionBackend(t)
+	conn := connect(t, backend, &editor{})
+	sid := start(t, conn)
+
+	prompt(t, conn, sid, questionPrompt)
+	require.Len(t, backend.answeredBatches(), 1)
+
+	// The turn's events include the batch notification, so the batch is
+	// resolved; the same ID is a new batch if Crush ever sends it again.
+	batch := batchEvent(t, tr)
+	require.Eventually(t, func() bool {
+		backend.push(trace{batch})
+		return len(backend.answeredBatches()) == 2
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestQuestionBatchIsHandledAgainWhenTheAnswerDoesNotReachCrush(t *testing.T) {

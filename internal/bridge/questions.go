@@ -51,17 +51,18 @@ func (a *Agent) askQuestions(s *session, u *translate.Update) {
 	ctx := a.beginBatch(u)
 	// A handler may wait minutes on the editor; do not stall the event loop.
 	go func(u translate.Update, backend Backend) {
-		defer a.endBatch(u.BatchID)
 		if err := a.questions.Handle(ctx, backend, u); err != nil {
 			a.log.Warn("question outcome not delivered",
 				"error", err, "batch_id", u.BatchID, "session_id", u.SessionID)
-			a.doneAsking(u.BatchID)
+			a.dropBatch(u.BatchID)
 		}
 	}(*u, a.backend(s.cwd))
 }
 
-// beginBatch returns the context a batch runs under. Registering happens on
-// the event loop, so a later event for the batch always finds it.
+// beginBatch returns the context a batch runs under. A batch stays registered
+// after it is answered, until Crush resolves it, its tool call finishes or the
+// session is cancelled, so a re-delivery in between is ignored. Registering
+// happens on the event loop, so a later event for the batch always finds it.
 func (a *Agent) beginBatch(u *translate.Update) context.Context {
 	ctx, cancel := context.WithCancel(a.serveCtx)
 	a.mu.Lock()
@@ -70,24 +71,30 @@ func (a *Agent) beginBatch(u *translate.Update) context.Context {
 	return ctx
 }
 
-func (a *Agent) endBatch(batchID string) {
+// dropBatch forgets a batch whose outcome did not reach Crush, so Crush's
+// re-delivery of it is handled again.
+func (a *Agent) dropBatch(batchID string) {
 	a.mu.Lock()
 	b, ok := a.batches[batchID]
 	delete(a.batches, batchID)
+	delete(a.asking, batchID)
 	a.mu.Unlock()
 	if ok {
 		b.cancel()
 	}
 }
 
-// cancelBatches cancels the active batches that match, and leaves them
-// recorded as asked so a late re-delivery is not handled again.
+// cancelBatches cancels the active batches that match and forgets them as
+// asked: a batch Crush resolved or whose tool call finished is never
+// re-delivered as pending.
 func (a *Agent) cancelBatches(match func(id string, b batchRun) bool) {
 	a.mu.Lock()
 	var cancels []context.CancelFunc
 	for id, b := range a.batches {
 		if match(id, b) {
 			cancels = append(cancels, b.cancel)
+			delete(a.batches, id)
+			delete(a.asking, id)
 		}
 	}
 	a.mu.Unlock()
