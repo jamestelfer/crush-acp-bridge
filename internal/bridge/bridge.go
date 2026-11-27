@@ -238,6 +238,11 @@ var _ acp.Agent = (*Agent)(nil)
 
 // Initialize negotiates capabilities.
 func (a *Agent) Initialize(_ context.Context, req acp.InitializeRequest) (acp.InitializeResponse, error) {
+	if e := req.ClientCapabilities.Elicitation; e != nil && e.Form != nil {
+		a.setQuestionHandler(&elicitationQuestionHandler{
+			conn: a.conn, log: a.log, fallback: chatFallbackQuestionHandler{},
+		})
+	}
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentInfo:       &acp.Implementation{Name: "crush-acp-bridge", Version: "0.0.0"},

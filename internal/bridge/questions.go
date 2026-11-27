@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/coder/acp-go-sdk"
@@ -52,12 +53,24 @@ func (a *Agent) askQuestions(s *session, u *translate.Update) {
 	ctx, run := a.beginBatch(u)
 	// A handler may wait minutes on the editor; do not stall the event loop.
 	go func(u translate.Update, backend Backend) {
-		if err := a.questions.Handle(ctx, backend, u); err != nil {
+		if err := a.questionHandler().Handle(ctx, backend, u); err != nil {
 			a.log.Warn("question outcome not delivered",
 				"error", err, "batch_id", u.BatchID, "session_id", u.SessionID)
 			a.dropBatch(u.BatchID, run)
 		}
 	}(*u, a.backend(s.cwd))
+}
+
+func (a *Agent) questionHandler() questionHandler {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.questions
+}
+
+func (a *Agent) setQuestionHandler(h questionHandler) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.questions = h
 }
 
 // beginBatch returns the context a batch runs under. A batch stays registered
@@ -133,6 +146,49 @@ func (chatFallbackQuestionHandler) Handle(ctx context.Context, backend Backend, 
 		if _, err := backend.AnswerQuestions(ctx, u.BatchID, answers); err != nil && ctx.Err() == nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// elicitationQuestionHandler asks the editor the whole batch as one form. A
+// batch that asks for a credential, or that the editor cannot be asked, goes
+// to the fallback instead.
+type elicitationQuestionHandler struct {
+	conn     *acp.AgentSideConnection
+	log      *slog.Logger
+	fallback questionHandler
+}
+
+func (h *elicitationQuestionHandler) Handle(ctx context.Context, backend Backend, u translate.Update) error {
+	if asksForCredentials(u.Questions) {
+		h.log.Info("question batch asks for a credential; asking in chat", "batch_id", u.BatchID, "session_id", u.SessionID)
+		return h.fallback.Handle(ctx, backend, u)
+	}
+	resp, err := h.conn.CreateElicitation(ctx, acp.CreateElicitationRequest{Form: elicitationForm(u)})
+	switch {
+	case ctx.Err() != nil:
+		// The batch is gone; the SDK has told the editor to drop the form.
+		return nil //nolint:nilerr // err is the cancellation itself
+	case err != nil:
+		h.log.Warn("elicitation failed; asking in chat", "error", err, "batch_id", u.BatchID, "session_id", u.SessionID)
+		return h.fallback.Handle(ctx, backend, u)
+	}
+
+	var answers []crush.QuestionAnswer
+	switch {
+	case resp.Accept != nil:
+		answers = elicitationAnswers(u.Questions, resp.Accept.Content)
+	case resp.Decline != nil:
+		answers = elicitationAnswers(u.Questions, nil)
+	default:
+		// Cancelled, or an action this bridge does not know: stop the turn.
+		if _, err := backend.CancelQuestions(ctx, u.BatchID); err != nil && ctx.Err() == nil {
+			return err
+		}
+		return nil
+	}
+	if _, err := backend.AnswerQuestions(ctx, u.BatchID, answers); err != nil && ctx.Err() == nil {
+		return err
 	}
 	return nil
 }

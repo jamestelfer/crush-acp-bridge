@@ -100,6 +100,7 @@ type fakeCrush struct {
 	answerErr   error      // returned once by AnswerQuestions when set
 	cancelErr   error      // returned by CancelQuestions when set
 	onAnswer    trace      // events Crush emits once a question batch is answered
+	onCancelQ   trace      // events Crush emits once a question batch is cancelled
 	models      crush.Models
 	modelsErr   error
 	setModels   []crush.ModelRef
@@ -365,6 +366,9 @@ func (f *fakeCrush) CancelQuestions(_ context.Context, batchID string) (bool, er
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.cancelledQ = append(f.cancelledQ, batchID)
+	for _, data := range f.onCancelQ {
+		f.events <- data
+	}
 	return f.cancelErr == nil, f.cancelErr
 }
 
@@ -374,7 +378,11 @@ type editor struct {
 	updates     []acp.SessionUpdate
 	sessions    []acp.SessionId // the session of each entry in updates
 	onPermisson func(acp.RequestPermissionRequest) acp.RequestPermissionResponse
-	elicited    atomic.Int32 // elicitation requests received, all refused
+	elicited    atomic.Int32 // elicitation requests received
+	// onElicit answers elicitation requests; without it the editor refuses
+	// them, as one that does not support elicitation does. ctx ends when the
+	// agent withdraws the request.
+	onElicit func(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error)
 }
 
 func (e *editor) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
@@ -422,8 +430,11 @@ func (*editor) WaitForTerminalExit(context.Context, acp.WaitForTerminalExitReque
 	return acp.WaitForTerminalExitResponse{}, errNoFS
 }
 
-func (e *editor) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+func (e *editor) CreateElicitation(ctx context.Context, r acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
 	e.elicited.Add(1)
+	if e.onElicit != nil {
+		return e.onElicit(ctx, r)
+	}
 	return acp.CreateElicitationResponse{}, errNoFS
 }
 func (*editor) CompleteElicitation(context.Context, acp.CompleteElicitationNotification) error {
@@ -459,6 +470,36 @@ type served struct {
 // serveWith serves the bridge over in-memory pipes until the test ends.
 func serveWith(t *testing.T, open bridge.Opener, ed *editor, opts ...bridge.Option) *served {
 	t.Helper()
+	return serveRewritten(t, open, ed, nil, opts...)
+}
+
+// lineRewriter passes each newline-terminated message the editor writes
+// through rewrite, so a test can put on the wire what the SDK would not send.
+type lineRewriter struct {
+	w       io.Writer
+	rewrite func([]byte) []byte
+	buf     []byte
+}
+
+func (l *lineRewriter) Write(p []byte) (int, error) {
+	l.buf = append(l.buf, p...)
+	for {
+		i := bytes.IndexByte(l.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		line := l.rewrite(append([]byte(nil), l.buf[:i+1]...))
+		l.buf = l.buf[i+1:]
+		if _, err := l.w.Write(line); err != nil {
+			return 0, err
+		}
+	}
+}
+
+// serveRewritten is serveWith with the editor's output passed through rewrite
+// when it is set.
+func serveRewritten(t *testing.T, open bridge.Opener, ed *editor, rewrite func([]byte) []byte, opts ...bridge.Option) *served {
+	t.Helper()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	toAgentR, toAgentW := io.Pipe()
@@ -476,7 +517,11 @@ func serveWith(t *testing.T, open bridge.Opener, ed *editor, opts ...bridge.Opti
 		<-done
 	})
 
-	conn := acp.NewClientSideConnection(ed, toAgentW, toEditorR)
+	var editorOut io.Writer = toAgentW
+	if rewrite != nil {
+		editorOut = &lineRewriter{w: toAgentW, rewrite: rewrite}
+	}
+	conn := acp.NewClientSideConnection(ed, editorOut, toEditorR)
 	conn.SetLogger(slog.New(slog.DiscardHandler))
 	return &served{conn: conn, cancel: cancel, input: toAgentW, done: done}
 }
