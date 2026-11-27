@@ -1,6 +1,6 @@
 # 11. Ask Crush's questions as permission requests
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR 13](0013-questions-via-elicitation-or-chat-fallback.md)
 - **Date**: 2026-11-24
 
 ## Context
@@ -30,3 +30,4 @@ The code is in `internal/bridge/questions.go`.
 - An answer or cancel that fails to reach Crush clears the batch from the asked set, so a re-delivery of the still-pending batch is asked again.
 - A batch of several questions takes several prompts, with no confirmation step. `confirm_title` and `confirm_description` are ignored.
 - An answer from another client, such as the Crush TUI, does not dismiss the editor's open prompt. ACP has no way to withdraw a permission request. The bridge's late answer reaches Crush as `resolved: false` and is logged.
+- [ADR 13](0013-questions-via-elicitation-or-chat-fallback.md) replaces this approach with single-form `elicitation/create` when the editor advertises `elicitation.form`, a chat fallback via `questions/answer` notes otherwise, and `$/cancel_request` cancellation ([#40](https://github.com/jamestelfer/crush-acp-bridge/issues/40)).

@@ -14,8 +14,9 @@ Each record states one decision, its context and its consequences. Records are n
 | [0008](0008-turn-failure-on-event-stream-loss.md) | Fail the turn when the event stream drops | Superseded by [0010](0010-resubscribe-on-event-stream-loss.md) |
 | [0009](0009-delete-empty-sessions-on-exit.md) | Delete empty sessions when the bridge exits | Accepted |
 | [0010](0010-resubscribe-on-event-stream-loss.md) | Re-subscribe when the event stream drops | Accepted |
-| [0011](0011-questions-as-permission-requests.md) | Ask Crush's questions as permission requests | Accepted |
+| [0011](0011-questions-as-permission-requests.md) | Ask Crush's questions as permission requests | Superseded by [0013](0013-questions-via-elicitation-or-chat-fallback.md) |
 | [0012](0012-no-editor-fs-terminal-delegation.md) | Do not delegate file system or terminal access to the editor | Accepted |
+| [0013](0013-questions-via-elicitation-or-chat-fallback.md) | Ask Crush's questions via form elicitation, with a chat fallback | Accepted |
 
 Template:
 
