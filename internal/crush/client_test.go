@@ -239,7 +239,7 @@ func TestAnswerQuestionsSendsEachResponseAsCrushDecodesIt(t *testing.T) {
 
 func TestQuestionAnswerEncodesNotesAndOmitsEmptyFields(t *testing.T) {
 	assert.Equal(t, "_question", crush.QuestionNoteKey)
-	yes := true
+	yes, no := true, false
 
 	tests := map[string]struct {
 		answer crush.QuestionAnswer
@@ -251,6 +251,7 @@ func TestQuestionAnswerEncodesNotesAndOmitsEmptyFields(t *testing.T) {
 		},
 		"fill in text": {crush.QuestionAnswer{QuestionID: "q", FillInText: "Ada"}, `{"request_id":"q","fill_in_text":"Ada"}`},
 		"yes":          {crush.QuestionAnswer{QuestionID: "q", Yes: &yes}, `{"request_id":"q","yes":true}`},
+		"no":           {crush.QuestionAnswer{QuestionID: "q", Yes: &no}, `{"request_id":"q","yes":false}`},
 		"skipped":      {crush.QuestionAnswer{QuestionID: "q"}, `{"request_id":"q"}`},
 	}
 	for name, tc := range tests {
