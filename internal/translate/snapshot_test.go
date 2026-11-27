@@ -31,6 +31,9 @@ type updateView struct {
 	StopReason    string               `json:"stop_reason,omitzero"`
 	BatchID       string               `json:"batch_id,omitzero"`
 	Questions     []translate.Question `json:"questions,omitzero"`
+
+	ConfirmTitle       string `json:"confirm_title,omitzero"`
+	ConfirmDescription string `json:"confirm_description,omitzero"`
 }
 
 // streamOf replays a recorded trace and returns every update as snapshot JSON.
@@ -50,6 +53,7 @@ func streamOf(t *testing.T, name string) []byte {
 				Output: u.Output, IsError: u.IsError, PermissionID: u.PermissionID,
 				Description: u.Description, RawPermission: u.RawPermission, RawParams: u.RawParams, Metadata: u.Metadata,
 				StopReason: u.StopReason, BatchID: u.BatchID, Questions: u.Questions,
+				ConfirmTitle: u.ConfirmTitle, ConfirmDescription: u.ConfirmDescription,
 			})
 		}
 	}

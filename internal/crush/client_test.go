@@ -237,6 +237,31 @@ func TestAnswerQuestionsSendsEachResponseAsCrushDecodesIt(t *testing.T) {
 	}, req.Body["responses"])
 }
 
+func TestQuestionAnswerEncodesNotesAndOmitsEmptyFields(t *testing.T) {
+	assert.Equal(t, "_question", crush.QuestionNoteKey)
+	yes := true
+
+	tests := map[string]struct {
+		answer crush.QuestionAnswer
+		want   string
+	}{
+		"notes": {
+			crush.QuestionAnswer{QuestionID: "q", SelectedIDs: []string{"a"}, Notes: map[string]string{"a": "why", crush.QuestionNoteKey: "overall"}},
+			`{"request_id":"q","selected_ids":["a"],"notes":{"_question":"overall","a":"why"}}`,
+		},
+		"fill in text": {crush.QuestionAnswer{QuestionID: "q", FillInText: "Ada"}, `{"request_id":"q","fill_in_text":"Ada"}`},
+		"yes":          {crush.QuestionAnswer{QuestionID: "q", Yes: &yes}, `{"request_id":"q","yes":true}`},
+		"skipped":      {crush.QuestionAnswer{QuestionID: "q"}, `{"request_id":"q"}`},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := json.Marshal(tc.answer, json.Deterministic(true))
+			require.NoError(t, err)
+			assert.JSONEq(t, tc.want, string(got))
+		})
+	}
+}
+
 func TestCancelQuestionsNamesTheBatch(t *testing.T) {
 	ws, srv := openFake(t, map[string]http.HandlerFunc{
 		"POST /v1/workspaces/ws-1/questions/cancel": func(w http.ResponseWriter, _ *http.Request) {

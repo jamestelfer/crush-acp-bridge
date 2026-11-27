@@ -33,6 +33,9 @@ const (
 	// QuestionAsked carries a batch of questions from Crush's question tool,
 	// which waits for the user's answers.
 	QuestionAsked
+	// QuestionResolved reports that a question batch is no longer pending,
+	// whoever answered or cancelled it.
+	QuestionResolved
 	// TurnEnded closes a prompt turn; StopReason holds the ACP stop reason.
 	TurnEnded
 )
@@ -46,6 +49,7 @@ var kindNames = map[Kind]string{
 	ToolCallFinished:    "tool_call_finished",
 	PermissionRequested: "permission_requested",
 	QuestionAsked:       "question_asked",
+	QuestionResolved:    "question_resolved",
 	TurnEnded:           "turn_ended",
 }
 
@@ -86,9 +90,12 @@ type Update struct {
 	RawParams jsontext.Value
 
 	// Question fields, set for QuestionAsked. BatchID names the batch when it
-	// is answered or cancelled; ToolCallID is the question tool's call.
-	BatchID   string
-	Questions []Question
+	// is answered or cancelled, and is also set for QuestionResolved;
+	// ToolCallID is the question tool's call.
+	BatchID            string
+	Questions          []Question
+	ConfirmTitle       string
+	ConfirmDescription string
 
 	// StopReason is set for TurnEnded: end_turn, cancelled, max_tokens or error.
 	StopReason string
@@ -195,6 +202,8 @@ func (t *Translator) Feed(data []byte) ([]Update, error) {
 		return t.permission(env.Payload.Payload)
 	case "question_batch_request":
 		return question(env.Payload.Payload)
+	case "question_batch_notification":
+		return questionResolved(env.Payload.Payload)
 	default:
 		return nil, nil
 	}
@@ -390,17 +399,31 @@ func (t *Translator) permission(raw jsontext.Value) ([]Update, error) {
 
 func question(raw jsontext.Value) ([]Update, error) {
 	var d struct {
-		ID         string     `json:"id"`
-		SessionID  string     `json:"session_id"`
-		ToolCallID string     `json:"tool_call_id"`
-		Questions  []Question `json:"questions"`
+		ID                 string     `json:"id"`
+		SessionID          string     `json:"session_id"`
+		ToolCallID         string     `json:"tool_call_id"`
+		Questions          []Question `json:"questions"`
+		ConfirmTitle       string     `json:"confirm_title"`
+		ConfirmDescription string     `json:"confirm_description"`
 	}
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return nil, fmt.Errorf("decode question batch: %w", err)
 	}
 	return []Update{{
 		Kind: QuestionAsked, SessionID: d.SessionID, BatchID: d.ID, ToolCallID: d.ToolCallID, Questions: d.Questions,
+		ConfirmTitle: d.ConfirmTitle, ConfirmDescription: d.ConfirmDescription,
 	}}, nil
+}
+
+func questionResolved(raw jsontext.Value) ([]Update, error) {
+	var d struct {
+		BatchID   string `json:"batch_id"`
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return nil, fmt.Errorf("decode question batch notification: %w", err)
+	}
+	return []Update{{Kind: QuestionResolved, SessionID: d.SessionID, BatchID: d.BatchID}}, nil
 }
 
 // delta returns the part of full not yet emitted for id, and records it as sent.
