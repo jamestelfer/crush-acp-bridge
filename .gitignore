@@ -11,3 +11,6 @@ CLAUDE.local.md
 
 # OpenRig
 .openrig/
+
+# Personal TestSmoke provider config (see docs/testing.md)
+testdata/smoke/local/

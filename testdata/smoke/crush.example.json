@@ -4,7 +4,7 @@
       "name": "Bedrock runtime (OpenAI Responses API)",
       "type": "openai",
       "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
-      "api_key": "$(wilmad token generate --region us-east-1)",
+      "api_key": "$BEDROCK_API_KEY",
       "models": [
         {
           "id": "global.openai.gpt-6.2-astra",
@@ -48,7 +48,7 @@
       "name": "Bedrock runtime (OpenAI API)",
       "type": "openai-compat",
       "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
-      "api_key": "$(wilmad token generate --region us-east-1)",
+      "api_key": "$BEDROCK_API_KEY",
       "models": [
         {
           "id": "openai.gpt-oss-120b-1:0",
@@ -98,7 +98,7 @@
       "name": "Bedrock mantle (/openai/v1)",
       "type": "openai-compat",
       "base_url": "https://bedrock-mantle.us-east-1.api.aws/openai/v1",
-      "api_key": "$(wilmad token generate --region us-east-1)",
+      "api_key": "$BEDROCK_API_KEY",
       "models": [
         {
           "id": "openai.gpt-6-astra",
@@ -145,7 +145,7 @@
       "name": "Bedrock mantle (/v1)",
       "type": "openai-compat",
       "base_url": "https://bedrock-mantle.us-east-1.api.aws/v1",
-      "api_key": "$(wilmad token generate --region us-east-1)",
+      "api_key": "$BEDROCK_API_KEY",
       "models": [
         {
           "id": "openai.gpt-oss-120b",

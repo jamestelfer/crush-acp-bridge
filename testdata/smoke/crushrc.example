@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Project-local Crush config written into every TestSmoke project. It registers
-# the models SMOKE_MODELS may name that Crush's built-in catalogue lacks.
+# Example project config for TestSmoke: copy it to testdata/smoke/local/crushrc
+# and register the models your SMOKE_MODELS names that Crush's catalogue lacks.
 
 provider add vertexai --type google-vertex
 model add vertexai/gemini-4-argon --name "Gemini 4 Argon" \

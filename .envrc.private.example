@@ -1,0 +1,21 @@
+# Copy to .envrc.private (gitignored) and fill in your own details.
+
+# Provider credentials Crush reads from the environment, for example:
+# export VERTEXAI_PROJECT=my-gcp-project
+# export VERTEXAI_LOCATION=global
+# export AWS_PROFILE=my-bedrock-profile
+# export BEDROCK_API_KEY=...   # used by testdata/smoke/crush.example.json
+
+# Project config copied into every TestSmoke project. Copy the examples in
+# testdata/smoke/ to testdata/smoke/local/ (gitignored) and edit them.
+# export SMOKE_CRUSH_CONFIG_DIR=testdata/smoke/local
+
+# Models for TestSmoke/models, as provider/model IDs. Unset, TestSmoke uses the
+# model Crush selects for a new session. The first model also runs the
+# bridge-level checks. Models Crush does not offer are skipped.
+# export SMOKE_MODELS="
+# vertexai/gemini-4-hydrogen
+# bedrock/us.anthropic.claude-haiku-5-5
+# bedrock-runtime-responses/global.openai.gpt-6.2-astra
+# bedrock-runtime-openai/qwen.qwen3-coder-next
+# "

@@ -51,7 +51,7 @@ import (
 // model-sensitive checks run for every model, in parallel; see smokeModels.
 func TestSmoke(t *testing.T) {
 	serverURL := ensureCrushServer(t)
-	models := smokeModels()
+	models := smokeModels(t, serverURL)
 	primary := models[0]
 
 	t.Run("session_lifecycle_and_probe_cleanup", func(t *testing.T) {
@@ -1403,18 +1403,17 @@ func (e *smokeEditor) stats() string {
 		e.updateCount, e.chunks, e.thoughts, e.toolCalls, e.failedCalls, e.maxOpen, e.openCalls(), e.kinds, len(e.permReqs), e.elicitCount)
 }
 
-// defaultSmokeModel runs the suite when SMOKE_MODELS is unset.
-const defaultSmokeModel acp.SessionConfigValueId = "vertexai/gemini-4-hydrogen"
-
 // smokeModels is the comma- or space-separated provider/model list in
-// SMOKE_MODELS, or defaultSmokeModel. The first entry also runs the checks of
-// bridge behaviour that do not depend on the model.
-func smokeModels() []acp.SessionConfigValueId {
+// SMOKE_MODELS or, when it is unset, the model Crush selects for a new
+// session, which is the developer's own configured default. The first entry
+// also runs the checks of bridge behaviour that do not depend on the model.
+func smokeModels(t *testing.T, serverURL string) []acp.SessionConfigValueId {
+	t.Helper()
 	fields := strings.FieldsFunc(os.Getenv("SMOKE_MODELS"), func(r rune) bool {
 		return r == ',' || unicode.IsSpace(r)
 	})
 	if len(fields) == 0 {
-		return []acp.SessionConfigValueId{defaultSmokeModel}
+		return []acp.SessionConfigValueId{crushDefaultModel(t, serverURL)}
 	}
 	models := make([]acp.SessionConfigValueId, len(fields))
 	for i, f := range fields {
@@ -1428,18 +1427,44 @@ func smokeModelName(m acp.SessionConfigValueId) string {
 	return strings.ReplaceAll(string(m), "/", ":")
 }
 
-// smokeProject returns a fresh project directory holding
-// testdata/smoke-models.crushrc as its crushrc and testdata/smoke-models.crush.json
-// as its crush.json, so every model SMOKE_MODELS may name is registered
-// whatever the developer's own Crush config holds. The JSON holds the
-// providers whose API key is a shell command, which a crushrc stores literally.
+// crushDefaultModel is the model Crush selects for a new session when the
+// developer has not named any in SMOKE_MODELS.
+func crushDefaultModel(t *testing.T, serverURL string) acp.SessionConfigValueId {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	b := startSmokeBridge(t, ctx, smokeConfig{args: []string{"--crush-url", serverURL}})
+	defer b.close(t)
+	sess, err := b.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: smokeProject(t), McpServers: []acp.McpServer{}})
+	require.NoError(t, err)
+	model := modelSelector(t, sess.ConfigOptions).CurrentValue
+	require.NotEmpty(t, model, "Crush offers no model; configure a provider or set SMOKE_MODELS")
+	t.Logf("SMOKE_MODELS is unset; testing Crush's default model %s", model)
+	return model
+}
+
+// smokeProject returns a fresh project directory. When SMOKE_CRUSH_CONFIG_DIR
+// is set (relative to the repository root), its crush.json and crushrc are
+// copied in as project config, so the
+// models SMOKE_MODELS names are registered whatever the developer's global
+// Crush config holds; testdata/smoke holds examples of both.
 func smokeProject(t *testing.T) string {
 	t.Helper()
 	cwd := t.TempDir()
-	for src, dst := range map[string]string{"smoke-models.crushrc": "crushrc", "smoke-models.crush.json": "crush.json"} {
-		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", src))
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(cwd, dst), data, 0o644))
+	dir := os.Getenv("SMOKE_CRUSH_CONFIG_DIR")
+	if dir == "" {
+		return cwd
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join("..", "..", dir)
+	}
+	for _, name := range []string{"crush.json", "crushrc"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		require.NoError(t, err, "SMOKE_CRUSH_CONFIG_DIR")
+		require.NoError(t, os.WriteFile(filepath.Join(cwd, name), data, 0o644))
 	}
 	return cwd
 }
