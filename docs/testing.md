@@ -83,7 +83,7 @@ CRUSH_SERVER_IDLE_TIMEOUT=86400 crush server --host http://127.0.0.1:8484
 
 - the credentials your providers read from the environment, such as `VERTEXAI_PROJECT` and `VERTEXAI_LOCATION` or `AWS_PROFILE`;
 - `SMOKE_MODELS`, the models to test;
-- `SMOKE_CRUSH_CONFIG_DIR`, a directory (relative to the repository root, or absolute) whose `crush.json` and `crushrc` are copied into every test project. Use it to register models or providers your global config lacks without editing that config. `testdata/smoke/local/` is gitignored for this purpose; copy the examples from `testdata/smoke/` there and edit them.
+- `SMOKE_CRUSH_CONFIG_DIR`, a directory (relative to the repository root, or absolute) whose `crush.json` and `crushrc` are copied into every test project. Use it to register models or providers your global config lacks without editing that config. `testdata/smoke/local/` is gitignored for this purpose; copy the examples from `testdata/smoke/` there and edit them. `.worktreeinclude` lists it with `.envrc.private`, so new worktrees get both.
 
 Crush logs a warning about finding both a JSON config and a crushrc in a project, and merges them.
 
