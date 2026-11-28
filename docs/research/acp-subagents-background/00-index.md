@@ -12,6 +12,7 @@ Status: research notes for a decision; nothing here is decided. Accessed 2026-11
 | [04-client-support.md](04-client-support.md) | Support matrix for Paseo, acpx, Zed, CodeCompanion, agent-shell and six others |
 | [05-verification-log.md](05-verification-log.md) | Independent re-checks (V1–V15) of the claims below |
 | [06-v2-go-sdks-and-clients.md](06-v2-go-sdks-and-clients.md) | Which Go SDKs implement ACP v2; which clients speak v2 |
+| [07-recorded-traces.md](07-recorded-traces.md) | Recorded Crush traces and a bridge run that confirm the dropped child permission, report-driven turns, and the background-shell shape |
 
 Each document marks claims **Confirmed** / **Inferred** / **Unverified** and ends with its own contradictions and references. A claim below cites the document and, where re-checked, the verification row.
 
@@ -64,7 +65,7 @@ Crush 0.103.0 in server (interactive) mode (03; V7):
 - Cancelling the parent leaves its children running.
 - Every session's events share one SSE stream.
 
-The bridge today drops every child-session event, **including permission requests**. A child that needs approval therefore waits indefinitely (Inferred, 03). This is a defect whatever the decision.
+The bridge today drops every child-session event, **including permission requests**. A child that needs approval waits indefinitely: **confirmed** by a bridge run in which a write subagent stalled with its permission never forwarded (07, finding 7). This is a defect whatever the decision.
 
 Spec v1 (V6, V10):
 
