@@ -30,7 +30,7 @@ xbuild *args:
 
 # Drive the built binary against a running crush server (needs CRUSH_ACP_URL and LIVE_CWD; TestSmoke starts its own server when CRUSH_ACP_URL is unset)
 live *args: build
-    go test -tags live -count=1 -v ./internal/live/ {{args}}
+    go test -tags live -count=1 -timeout 120m -v ./internal/live/ {{args}}
 
 acpx_version := "0.22.0"
 

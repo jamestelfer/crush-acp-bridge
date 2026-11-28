@@ -1,0 +1,189 @@
+{
+  "providers": {
+    "bedrock-runtime-responses": {
+      "name": "Bedrock runtime (OpenAI Responses API)",
+      "type": "openai",
+      "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+      "api_key": "$BEDROCK_API_KEY",
+      "models": [
+        {
+          "id": "global.openai.gpt-6.2-astra",
+          "name": "GPT-6.2 Astra (runtime, Responses)",
+          "context_window": 1050000,
+          "default_max_tokens": 128000,
+          "capabilities": {
+            "vision": true
+          }
+        },
+        {
+          "id": "global.openai.gpt-6.2-sol",
+          "name": "GPT-6.2 Sol (runtime, Responses)",
+          "context_window": 1050000,
+          "default_max_tokens": 128000,
+          "capabilities": {
+            "vision": true
+          }
+        },
+        {
+          "id": "global.openai.gpt-6.1-terra",
+          "name": "GPT-6.1 Terra (runtime, Responses)",
+          "context_window": 1050000,
+          "default_max_tokens": 128000,
+          "capabilities": {
+            "vision": true
+          }
+        },
+        {
+          "id": "global.openai.gpt-5.6-luna",
+          "name": "GPT-5.6 Luna (runtime, Responses)",
+          "context_window": 1050000,
+          "default_max_tokens": 128000,
+          "capabilities": {
+            "vision": true
+          }
+        }
+      ]
+    },
+    "bedrock-runtime-openai": {
+      "name": "Bedrock runtime (OpenAI API)",
+      "type": "openai-compat",
+      "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+      "api_key": "$BEDROCK_API_KEY",
+      "models": [
+        {
+          "id": "openai.gpt-oss-120b-1:0",
+          "name": "gpt-oss-120b (runtime)",
+          "context_window": 128000,
+          "default_max_tokens": 16000
+        },
+        {
+          "id": "qwen.qwen3-coder-next",
+          "name": "Qwen3 Coder Next (runtime)",
+          "context_window": 256000,
+          "default_max_tokens": 16000
+        },
+        {
+          "id": "deepseek.v3.2",
+          "name": "DeepSeek V3.2 (runtime)",
+          "context_window": 164000,
+          "default_max_tokens": 8000
+        },
+        {
+          "id": "moonshotai.kimi-k2.5",
+          "name": "Kimi K2.5 (runtime)",
+          "context_window": 256000,
+          "default_max_tokens": 16000
+        },
+        {
+          "id": "mistral.devstral-2-123b",
+          "name": "Devstral 2 123B (runtime)",
+          "context_window": 256000,
+          "default_max_tokens": 32000
+        },
+        {
+          "id": "zai.glm-5",
+          "name": "GLM 5 (runtime)",
+          "context_window": 200000,
+          "default_max_tokens": 128000
+        },
+        {
+          "id": "minimax.minimax-m2.5",
+          "name": "MiniMax M2.5 (runtime)",
+          "context_window": 196000,
+          "default_max_tokens": 8000
+        }
+      ]
+    },
+    "bedrock-mantle-openai": {
+      "name": "Bedrock mantle (/openai/v1)",
+      "type": "openai-compat",
+      "base_url": "https://bedrock-mantle.us-east-1.api.aws/openai/v1",
+      "api_key": "$BEDROCK_API_KEY",
+      "models": [
+        {
+          "id": "openai.gpt-6-astra",
+          "name": "GPT-6 Astra (mantle)",
+          "context_window": 1050000,
+          "default_max_tokens": 128000,
+          "capabilities": {
+            "vision": true
+          }
+        },
+        {
+          "id": "openai.gpt-6.1-sol",
+          "name": "GPT-6.1 Sol (mantle)",
+          "context_window": 1000000,
+          "default_max_tokens": 131072,
+          "capabilities": {
+            "vision": true
+          }
+        },
+        {
+          "id": "openai.gpt-6-luna",
+          "name": "GPT-6 Luna (mantle)",
+          "context_window": 1050000,
+          "default_max_tokens": 128000,
+          "capabilities": {
+            "vision": true
+          }
+        },
+        {
+          "id": "google.gemma-4-31b",
+          "name": "Gemma 4 31B (mantle)",
+          "context_window": 256000,
+          "default_max_tokens": 8192
+        },
+        {
+          "id": "xai.grok-4.3",
+          "name": "Grok 4.3 (mantle)",
+          "context_window": 1000000,
+          "default_max_tokens": 32000
+        }
+      ]
+    },
+    "bedrock-mantle-v1": {
+      "name": "Bedrock mantle (/v1)",
+      "type": "openai-compat",
+      "base_url": "https://bedrock-mantle.us-east-1.api.aws/v1",
+      "api_key": "$BEDROCK_API_KEY",
+      "models": [
+        {
+          "id": "openai.gpt-oss-120b",
+          "name": "gpt-oss-120b (mantle)",
+          "context_window": 128000,
+          "default_max_tokens": 16000
+        },
+        {
+          "id": "qwen.qwen3-coder-next",
+          "name": "Qwen3 Coder Next (mantle)",
+          "context_window": 256000,
+          "default_max_tokens": 16000
+        },
+        {
+          "id": "deepseek.v3.2",
+          "name": "DeepSeek V3.2 (mantle)",
+          "context_window": 164000,
+          "default_max_tokens": 8000
+        },
+        {
+          "id": "moonshotai.kimi-k2.5",
+          "name": "Kimi K2.5 (mantle)",
+          "context_window": 256000,
+          "default_max_tokens": 16000
+        },
+        {
+          "id": "mistral.devstral-2-123b",
+          "name": "Devstral 2 123B (mantle)",
+          "context_window": 256000,
+          "default_max_tokens": 32000
+        },
+        {
+          "id": "zai.glm-5",
+          "name": "GLM 5 (mantle)",
+          "context_window": 200000,
+          "default_max_tokens": 128000
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Example project config for TestSmoke: copy it to testdata/smoke/local/crushrc
+# and register the models your SMOKE_MODELS names that Crush's catalogue lacks.
+
+provider add vertexai --type google-vertex
+model add vertexai/gemini-4-argon --name "Gemini 4 Argon" \
+  --context-window 1048576 --default-max-tokens 65536 \
+  --can-reason true --reasoning-effort medium --supports-images true
+model add vertexai/gemini-4-carbon --name "Gemini 4 Carbon" \
+  --context-window 1048576 --default-max-tokens 65536 \
+  --can-reason true --reasoning-effort medium --supports-images true
+model add vertexai/gemini-4-hydrogen --name "Gemini 4 Hydrogen" \
+  --context-window 1048576 --default-max-tokens 65536 \
+  --can-reason true --reasoning-effort medium --supports-images true
+model add vertexai/gemini-4-neon --name "Gemini 4 Neon" \
+  --context-window 1048576 --default-max-tokens 65536 \
+  --can-reason true --reasoning-effort medium --supports-images true
+
+provider add bedrock
+model add bedrock/global.anthropic.claude-opus-5-5 --name "Claude Opus 5.5 (global)" \
+  --context-window 1000000 --default-max-tokens 128000 \
+  --thinking toggleable --supports-images true
