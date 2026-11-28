@@ -17,6 +17,12 @@ session ID is printed on stdout; progress goes to stderr.
 Questions from Crush's question tool are answered too: yes to a yes_no
 question, the first choice of a single_choice or multi_choice question, and
 FREE_TEXT_ANSWER to a free_text question.
+
+A turn ends at the trace session's own finish, not a subagent's. With
+RECORD_SETTLE=1 set, recording continues after the last turn until every
+session descended from the trace session is idle and no event has arrived
+for RECORD_QUIET seconds (default 10), so subagent reports and the turns
+they wake are captured.
 """
 
 import http.client
@@ -67,9 +73,38 @@ def call(base, method, path, body=None):
     return json.loads(data) if data.strip() else None
 
 
-def listen(base, ws, client, action, out, turn_done, done, failure):
+class Tree:
+    """The trace session and its descendants, as the event stream reports them."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.root = None
+        self.parent = {}
+        self.busy = {}
+        self.last_event = time.monotonic()
+
+    def note_session(self, s):
+        with self.lock:
+            self.parent[s["id"]] = s.get("parent_session_id") or ""
+            self.busy[s["id"]] = bool(s.get("is_busy"))
+
+    def in_tree(self, sid):
+        seen = set()
+        while sid and sid not in seen:
+            if sid == self.root:
+                return True
+            seen.add(sid)
+            sid = self.parent.get(sid, "")
+        return False
+
+    def any_busy(self):
+        with self.lock:
+            return any(b for s, b in self.busy.items() if self.in_tree(s))
+
+
+def listen(base, ws, client, action, out, tree, turn_done, done, failure):
     try:
-        follow(base, ws, client, action, out, turn_done, done)
+        follow(base, ws, client, action, out, tree, turn_done, done)
         if not done.is_set():
             failure.append("the event stream closed before the last turn ended")
     except BaseException as e:  # noqa: BLE001 - reported by the main thread
@@ -77,7 +112,7 @@ def listen(base, ws, client, action, out, turn_done, done, failure):
     turn_done.set()
 
 
-def follow(base, ws, client, action, out, turn_done, done):
+def follow(base, ws, client, action, out, tree, turn_done, done):
     c = connection(base)
     c.request("GET", f"/v1/workspaces/{ws}/events?client_id={client}",
               headers={"Accept": "text/event-stream"})
@@ -92,8 +127,11 @@ def follow(base, ws, client, action, out, turn_done, done):
         out.flush()
         if not line.startswith(b"data:"):
             continue
+        tree.last_event = time.monotonic()
         ev = json.loads(line[5:])
-        if ev["type"] == "permission_request":
+        if ev["type"] == "session":
+            tree.note_session(ev["payload"]["payload"])
+        elif ev["type"] == "permission_request":
             p = ev["payload"]["payload"]
             print("permission", p["tool_name"], file=sys.stderr)
             call(base, "POST", f"/workspaces/{ws}/permissions/grant",
@@ -108,6 +146,7 @@ def follow(base, ws, client, action, out, turn_done, done):
             m = ev["payload"]["payload"]
             for part in m.get("parts") or []:
                 if (part["type"] == "finish" and m["role"] == "assistant"
+                        and m.get("session_id") == tree.root
                         and part["data"].get("reason") in TURN_END_REASONS):
                     turn_done.set()
 
@@ -125,6 +164,18 @@ def answer(question):
     return r
 
 
+def settle(tree, quiet, failure):
+    """Wait until the session tree is idle and the stream has been quiet."""
+    deadline = time.monotonic() + TIMEOUT
+    while not failure:
+        if not tree.any_busy() and time.monotonic() - tree.last_event >= quiet:
+            print("settled", file=sys.stderr)
+            return
+        if time.monotonic() > deadline:
+            raise SystemExit("timed out waiting for the sessions to settle")
+        time.sleep(0.5)
+
+
 def main(argv):
     if len(argv) < 5:
         raise SystemExit(__doc__)
@@ -137,15 +188,17 @@ def main(argv):
     env = [f"{k}={v}" for k, v in os.environ.items()]
     ws = call(base, "POST", "/workspaces", {"path": cwd, "client_id": client, "env": env})["id"]
 
+    tree = Tree()
     turn_done, done, failure = threading.Event(), threading.Event(), []
     with open(out_path, "w", encoding="utf-8") as out:
         t = threading.Thread(target=listen, daemon=True,
-                             args=(base, ws, client, action, out, turn_done, done, failure))
+                             args=(base, ws, client, action, out, tree, turn_done, done, failure))
         t.start()
         # Subscribe before creating the session, as the bridge does, so the
         # trace opens with the session's "created" event.
         time.sleep(1)
         sid = call(base, "POST", f"/workspaces/{ws}/sessions", {"title": "trace"})["id"]
+        tree.root = sid
         # Permission requests reach only the client viewing the session.
         call(base, "POST", f"/workspaces/{ws}/current-session?client_id={client}",
              {"session_id": sid})
@@ -162,6 +215,8 @@ def main(argv):
                 raise SystemExit(failure[0])
             print("turn done", file=sys.stderr)
         time.sleep(1)  # collect the events that follow the finish
+        if os.environ.get("RECORD_SETTLE") == "1":
+            settle(tree, float(os.environ.get("RECORD_QUIET", "10")), failure)
         if failure:
             raise SystemExit(failure[0])
         done.set()

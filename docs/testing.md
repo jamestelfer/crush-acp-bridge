@@ -120,6 +120,8 @@ just record-trace edit-permission allow "Edit hello.txt to say goodbye"
 
 The recipe writes `testdata/<name>.sse`. The action is `allow`, `allow_session` or `deny`. Pass several prompts for a multi-turn trace.
 
+A turn ends at the trace session's own finish, not a subagent's. A dispatched subagent works after the parent's turn has ended, and its report starts another parent turn. To record that, set `RECORD_SETTLE=1`: recording then continues until every session descended from the trace session is idle and no event has arrived for `RECORD_QUIET` seconds (default 10).
+
 `CRUSH_ACP_URL` also takes a `unix://` URL:
 
 ```sh
